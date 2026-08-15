@@ -3,14 +3,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "numpyai"
-version = "0.4.0"
-description = "A natural language interface for NumPy, powered by LLMs."
+name = "numpyai-dashboard"
+version = "0.1.0"
+description = "Load spreadsheets into NumPy and explore them in natural language."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Aadya Chinubhai", email = "aadyachinubhai@gmail.com" }]
 requires-python = ">=3.11"
-keywords = ["numpy", "llm", "ai", "data-analysis", "natural-language"]
+keywords = ["numpy", "llm", "ai", "data-analysis", "excel", "spreadsheet", "dashboard"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -53,16 +53,16 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/AadyaChinubhai/numpyai"
-Documentation = "https://numpyai.readthedocs.io"
-Issues = "https://github.com/AadyaChinubhai/numpyai/issues"
+Homepage = "https://github.com/aadya940/numpyai-dashboard"
+Issues = "https://github.com/aadya940/numpyai-dashboard/issues"
+"Upstream (numpyai)" = "https://github.com/aadya940/numpyai"
 
 [tool.setuptools.packages.find]
-include = ["numpyai*"]
+include = ["numpyai_dashboard*"]
 exclude = ["examples*", "source*", "tests*"]
 
 [tool.setuptools.package-data]
-numpyai = ["py.typed"]
+numpyai_dashboard = ["py.typed"]
 
 [tool.black]
 line-length = 88

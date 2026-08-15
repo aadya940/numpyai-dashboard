@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'numpyai'
+project = 'numpyai-dashboard'
 copyright = '2025, Aadya Chinubhai'
 author = 'Aadya Chinubhai'
 release = '0.1.0'

@@ -30,8 +30,8 @@ jobs:
 
       - name: Lint
         run: |
-          ruff check numpyai tests
-          black --check numpyai tests
+          ruff check numpyai_dashboard tests
+          black --check numpyai_dashboard tests
 
       - name: Test
         run: pytest -v

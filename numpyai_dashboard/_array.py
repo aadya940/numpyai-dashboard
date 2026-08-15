@@ -38,7 +38,7 @@ class array:
         Number of code-generation attempts before giving up (default: 3).
     columns:
         Optional names for the columns of a 2-D array. Populated automatically by
-        :func:`numpyai.read_excel`; passed to the LLM so it can refer to columns
+        :func:`numpyai_dashboard.read_excel`; passed to the LLM so it can refer to columns
         by name instead of by index.
     """
 
@@ -111,7 +111,7 @@ class array:
         self._data[index] = value
 
     def __repr__(self) -> str:
-        return f"numpyai.array(shape={self._data.shape}, dtype={self._data.dtype})"
+        return f"numpyai_dashboard.array(shape={self._data.shape}, dtype={self._data.dtype})"
 
     def __getattr__(self, name):
         attr = getattr(self._data, name)

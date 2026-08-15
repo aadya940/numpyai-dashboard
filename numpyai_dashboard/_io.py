@@ -29,7 +29,7 @@ def _load_calamine():
     except ImportError as exc:  # pragma: no cover - depends on install extras
         raise ImportError(
             "read_excel requires the 'python-calamine' package.\n"
-            "Install it with:  pip install 'numpyai[excel]'"
+            "Install it with:  pip install 'numpyai-dashboard[excel]'"
         ) from exc
     return python_calamine
 
@@ -57,7 +57,7 @@ def read_excel(
     model: Any = DEFAULT_MODEL,
     max_tries: int = 3,
 ) -> array:
-    """Read a spreadsheet into a :class:`numpyai.array`.
+    """Read a spreadsheet into a :class:`numpyai_dashboard.array`.
 
     Supports ``.xlsx``, ``.xls``, ``.xlsb`` and ``.ods`` via `python-calamine
     <https://github.com/dimastbk/python-calamine>`_.
@@ -77,11 +77,11 @@ def read_excel(
         Treat the first row as column names (default ``True``). When ``False``,
         columns are named ``col0``, ``col1``, ...
     verbose, model, max_tries:
-        Forwarded to :class:`numpyai.array`.
+        Forwarded to :class:`numpyai_dashboard.array`.
 
     Returns
     -------
-    numpyai.array
+    numpyai_dashboard.array
         A 2-D float64 array whose ``.columns`` holds the retained column names.
 
     Raises

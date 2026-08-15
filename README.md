@@ -1,22 +1,31 @@
 <p align="center">
-<img src="logo.png" alt="NumpyAI logo" width="500">
+<img src="logo.png" alt="numpyai-dashboard logo" width="500">
 </p>
 
-# NumPyAI
+# numpyai-dashboard
 
-A natural-language interface for [NumPy](https://github.com/numpy/numpy), powered by LLMs.
+Load spreadsheets into [NumPy](https://github.com/numpy/numpy) and explore them in
+plain English.
 
-NumpyAI lets you interact with NumPy arrays using plain English. It ships as a small,
-provider-agnostic library built on top of [Pydantic AI](https://ai.pydantic.dev/) - so
-you can plug in Google Gemini, OpenAI, Anthropic, or any other model Pydantic AI supports
-without touching the library code.
+`numpyai-dashboard` reads `.xlsx`/`.xls`/`.xlsb`/`.ods` straight into a NumPy array,
+carries your column names through to the model, and lets you ask questions about the
+data in natural language. It is built on [Pydantic AI](https://ai.pydantic.dev/), so
+Google Gemini, OpenAI, Anthropic or any other supported model works without touching
+the library code.
+
+> **Status:** early. The spreadsheet loading layer is in place; the dashboard/
+> visualization layer is the next milestone.
+>
+> This project is a fork of [numpyai](https://github.com/aadya940/numpyai) and
+> currently shares most of its core. It installs as `numpyai_dashboard`, so it will
+> not collide with an existing `numpyai` install.
 
 ## Features
 
-- Ask questions in English; NumpyAI generates and executes NumPy code for you.
-- `numpyai.Diagnosis` suggests analysis steps for your data.
-- `numpyai.NumpyAISession` chats over multiple arrays at once.
-- `numpyai.read_excel` loads `.xlsx`/`.xls`/`.xlsb`/`.ods` straight into an array.
+- Load a spreadsheet into a NumPy array with one call, column names included.
+- Ask questions in English; the library generates and executes NumPy code for you.
+- `numpyai_dashboard.Diagnosis` suggests analysis steps for your data.
+- `numpyai_dashboard.NumpyAISession` chats over multiple arrays at once.
 - Generated code is syntax-checked and independently validated before returning.
 - Automatic retries with error context.
 - Verbose mode (`verbose=True`) prints every intermediate step.
@@ -25,23 +34,23 @@ without touching the library code.
 ## Installation
 
 ```sh
-pip install "numpyai[all]"
+pip install "numpyai-dashboard[all]"
 ```
 
-Or install only the providers you need:
+Or install only the pieces you need:
 
 ```sh
-pip install "numpyai[google]"    # Google Gemini
-pip install "numpyai[openai]"    # OpenAI
-pip install "numpyai[anthropic]" # Anthropic Claude
-pip install "numpyai[excel]"     # .xlsx/.xls/.xlsb/.ods loading
+pip install "numpyai-dashboard[excel]"     # .xlsx/.xls/.xlsb/.ods loading
+pip install "numpyai-dashboard[google]"    # Google Gemini
+pip install "numpyai-dashboard[openai]"    # OpenAI
+pip install "numpyai-dashboard[anthropic]" # Anthropic Claude
 ```
 
 ### From source
 
 ```sh
-git clone https://github.com/aadya940/numpyai
-cd numpyai
+git clone https://github.com/aadya940/numpyai-dashboard
+cd numpyai-dashboard
 pip install -e ".[all,dev]"
 ```
 
@@ -65,7 +74,7 @@ export GEMINI_API_KEY=...
 
 ```python
 import numpy as np
-import numpyai as npi
+import numpyai_dashboard as npi
 
 data = np.array([[1, 2, 3, 4, 5, np.nan], [np.nan, 3, 5, 3.1415, 2, 2]])
 arr = npi.array(data)  # defaults to google:gemini-2.5-flash
@@ -88,11 +97,11 @@ You can also pass a pre-configured `pydantic_ai.models.Model` instance for full 
 
 ### Loading a spreadsheet
 
-Requires `numpyai[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods` via
+Requires `numpyai-dashboard[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods` via
 [python-calamine](https://github.com/dimastbk/python-calamine).
 
 ```python
-import numpyai as npi
+import numpyai_dashboard as npi
 
 arr = npi.read_excel("sales.xlsx")          # or sheet="Q3", header=False
 print(arr.columns)                          # ['units', 'unit_price', 'discount']
@@ -102,8 +111,8 @@ print(arr.chat("Total revenue after discount."))
 Column names are passed to the model, so you can refer to them in plain English
 rather than by index.
 
-Because a NumpyAI array is a homogeneous `float64` matrix, only columns that
-convert cleanly are kept:
+Because the array handed to the model is a homogeneous `float64` matrix, only
+columns that convert cleanly are kept:
 
 | In the sheet | Becomes |
 | --- | --- |
@@ -119,7 +128,7 @@ tells you which and why.
 
 ```python
 import numpy as np
-import numpyai as npi
+import numpyai_dashboard as npi
 
 arr1 = np.array([[1, 2, 3], [4, 5, 6]])
 arr2 = np.random.random((2, 3))
@@ -148,8 +157,10 @@ Ollama, and OpenAI-compatible endpoints. See the
 
 - Format with `black` and lint with `ruff`.
 - Add tests under `tests/`.
-- Public API surface (`array`, `NumpyAISession`, `Diagnosis`) should stay stable.
+- Public API surface (`array`, `NumpyAISession`, `Diagnosis`, `read_excel`) should
+  stay stable.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE). Forked from
+[numpyai](https://github.com/aadya940/numpyai), also MIT.

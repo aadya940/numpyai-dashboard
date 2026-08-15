@@ -5,12 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from numpyai import read_excel
-from numpyai._exceptions import NumpyAIError
+from numpyai_dashboard import read_excel
+from numpyai_dashboard._exceptions import NumpyAIError
 
 from _xlsx import write_xlsx
 
-pytest.importorskip("python_calamine", reason="needs numpyai[excel]")
+pytest.importorskip("python_calamine", reason="needs numpyai-dashboard[excel]")
 
 
 @pytest.fixture

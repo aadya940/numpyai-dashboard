@@ -1,4 +1,4 @@
-"""Data-analysis step generator for numpyai objects."""
+"""Data-analysis step generator for numpyai_dashboard objects."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class Diagnosis:
             self._type = "multi"
             self._metadata = data._context
         else:
-            raise TypeError("`data` must be a numpyai.array or NumpyAISession")
+            raise TypeError("`data` must be a numpyai_dashboard.array or NumpyAISession")
 
         self.MAX_TRIES = max_tries
         self._code_generator = NumpyCodeGen(model=data._model)

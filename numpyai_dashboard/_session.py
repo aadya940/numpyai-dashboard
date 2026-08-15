@@ -27,7 +27,7 @@ class NumpyAISession:
     Parameters
     ----------
     data:
-        List of ``numpy.ndarray`` (or ``numpyai.array``) objects. They will be
+        List of ``numpy.ndarray`` (or ``numpyai_dashboard.array``) objects. They will be
         exposed to the LLM as ``arr1``, ``arr2``, ...
     verbose:
         Show all intermediate LLM steps.
@@ -64,7 +64,7 @@ class NumpyAISession:
                 arr = arr.data
             if not isinstance(arr, np.ndarray):
                 raise TypeError(
-                    f"session data must be numpy.ndarray or numpyai.array, "
+                    f"session data must be numpy.ndarray or numpyai_dashboard.array, "
                     f"got {type(arr).__name__} at index {i - 1}"
                 )
             self._context[f"arr{i}"] = {

@@ -29,7 +29,7 @@ def _get_worker_loop() -> asyncio.AbstractEventLoop:
             threading.Thread(
                 target=_worker_loop.run_forever,
                 daemon=True,
-                name="numpyai-asyncio",
+                name="numpyai-dashboard-asyncio",
             ).start()
         return _worker_loop
 

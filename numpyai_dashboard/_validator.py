@@ -1,7 +1,7 @@
 """Syntactic validation of generated NumPy code.
 
 The library's *semantic* validation runs through the judgment agent
-(see :class:`numpyai.Judgment`). This module only verifies that the
+(see :class:`numpyai_dashboard.Judgment`). This module only verifies that the
 generated code parses.
 """
 

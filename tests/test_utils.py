@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from numpyai._utils import NumpyMetadataCollector, clean_code
-from numpyai._validator import NumpyValidator
+from numpyai_dashboard._utils import NumpyMetadataCollector, clean_code
+from numpyai_dashboard._validator import NumpyValidator
 
 
 def test_clean_code_strips_fences():
