@@ -17,7 +17,8 @@ Forked from [numpyai](https://github.com/aadya940/numpyai). It installs as
 
 ## Features
 
-- Load a spreadsheet into a NumPy array with one call, column names included.
+- Load a spreadsheet into a NumPy array with one call. Text, dates and numbers are
+  all preserved, each in its own dtype.
 - Ask questions in English; the library generates and executes NumPy code for you.
 - `numpyai_dashboard.Diagnosis` suggests analysis steps for your data.
 - `numpyai_dashboard.NumpyAISession` chats over multiple arrays at once.
@@ -73,21 +74,32 @@ Requires `numpyai-dashboard[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods` v
 import numpyai_dashboard as npi
 
 arr = npi.read_excel("sales.xlsx")          # or sheet="Q3", header=False
-print(arr.columns)                          # ['units', 'unit_price', 'discount']
-print(arr.chat("Total revenue after discount."))
+print(arr.columns)                          # ['region', 'date', 'units', 'price']
+print(arr.chat("Total revenue by region since March."))
 ```
 
-Column names reach the model, so you can refer to them by name rather than index.
+Every column is kept, in the NumPy dtype that fits it:
 
-The array is a homogeneous `float64` matrix, so only columns that convert cleanly
-are kept:
+| In the sheet | Becomes | Blank cells |
+| --- | --- | --- |
+| numbers, `TRUE`/`FALSE`, numeric text | `float64` | `NaN` |
+| dates and datetimes | `datetime64[s]` | `NaT` |
+| anything else | unicode text | `""` |
 
-| In the sheet | Becomes |
-| --- | --- |
-| numbers, numeric text | `float64` |
-| blank cells | `NaN` |
-| `TRUE` / `FALSE` | `1.0` / `0.0` |
-| text, dates | dropped, with a `UserWarning` naming each one |
+A sheet whose columns are all numeric loads as a plain 2-D `float64` array. A sheet
+with mixed types loads as a [structured
+array](https://numpy.org/doc/stable/user/basics.rec.html), so columns keep their own
+dtype and are reached by name:
+
+```python
+arr.data["region"]                                  # array(['EMEA', 'APAC', ...])
+arr.data["units"][arr.data["region"] == "EMEA"]     # group by
+arr.data[arr.data["date"] > np.datetime64("2023-03-01")]   # filter by date
+```
+
+Column names, dtypes, numeric ranges and the distinct values of low-cardinality text
+columns are all passed to the model, so it can answer questions about categories and
+dates without you spelling out what is in the sheet.
 
 ### Single array
 

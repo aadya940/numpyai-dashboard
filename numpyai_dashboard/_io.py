@@ -1,13 +1,19 @@
 """File loaders that turn spreadsheets into NumPy arrays.
 
-NumpyAI operates on a homogeneous 2-D ``float64`` array, so loading a spreadsheet
-means selecting the columns that can be represented that way. Columns that cannot
-(text, dates) are reported rather than silently dropped - see :func:`read_excel`.
+Every column is preserved in the NumPy dtype that fits it: numbers become
+``float64``, dates become ``datetime64``, and anything else becomes a unicode
+string. Nothing is discarded.
+
+A sheet whose columns are all numeric loads as a plain 2-D ``float64`` array. A
+sheet with mixed types loads as a `structured array
+<https://numpy.org/doc/stable/user/basics.rec.html>`_, whose fields are accessed
+by name (``arr["score"]``) and which supports the filtering and grouping that
+mixed data is usually loaded for.
 """
 
 from __future__ import annotations
 
-import warnings
+import datetime as _dt
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -40,12 +46,50 @@ def _is_blank(value: Any) -> bool:
 
 
 def _header_names(row: Sequence[Any], width: int) -> list[str]:
-    """Build column names from a header row, filling blanks positionally."""
-    names = []
+    """Build unique column names from a header row, filling blanks positionally.
+
+    Names must be unique because they become structured-array field names, which
+    NumPy does not allow to collide.
+    """
+    names: list[str] = []
+    seen: dict[str, int] = {}
     for j in range(width):
         cell = row[j] if j < len(row) else None
-        names.append(f"col{j}" if _is_blank(cell) else str(cell).strip())
+        name = f"col{j}" if _is_blank(cell) else str(cell).strip()
+        if name in seen:
+            seen[name] += 1
+            name = f"{name}_{seen[name]}"
+        else:
+            seen[name] = 0
+        names.append(name)
     return names
+
+
+def _convert_column(values: Sequence[Any]) -> np.ndarray:
+    """Convert one spreadsheet column to its natural NumPy dtype.
+
+    Tried in order: float64, datetime64, then unicode text. The text fallback
+    always succeeds, so no column is ever dropped.
+    """
+    cleaned = [None if _is_blank(v) else v for v in values]
+
+    # Numbers, booleans and numeric text. Blanks become NaN.
+    try:
+        return np.asarray(
+            [np.nan if v is None else v for v in cleaned], dtype=np.float64
+        )
+    except (TypeError, ValueError):
+        pass
+
+    # Dates and datetimes. Blanks become NaT.
+    if all(v is None or isinstance(v, (_dt.date, _dt.datetime)) for v in cleaned):
+        return np.array(
+            [np.datetime64("NaT") if v is None else np.datetime64(v) for v in cleaned],
+            dtype="datetime64[s]",
+        )
+
+    # Everything else, including times and mixed columns. Blanks become "".
+    return np.array(["" if v is None else str(v) for v in cleaned], dtype=np.str_)
 
 
 def read_excel(
@@ -62,10 +106,14 @@ def read_excel(
     Supports ``.xlsx``, ``.xls``, ``.xlsb`` and ``.ods`` via `python-calamine
     <https://github.com/dimastbk/python-calamine>`_.
 
-    Only columns that convert cleanly to ``float64`` are kept, because the array
-    handed to the LLM must be homogeneous and numeric. Empty cells become ``NaN``
-    and booleans become ``1.0``/``0.0``. Text and date columns are excluded and
-    listed in a :class:`UserWarning`, so nothing disappears without notice.
+    Every column is kept. Numbers and booleans become ``float64`` (blanks become
+    ``NaN``), dates become ``datetime64[s]`` (blanks become ``NaT``), and
+    anything else becomes text (blanks become ``""``).
+
+    If every column is numeric the result is a plain 2-D ``float64`` array. If
+    the types are mixed the result is a structured array whose fields carry the
+    column names, so ``arr.data["region"] == "EMEA"`` and
+    ``arr.data["date"] > np.datetime64("2023-04-01")`` both work.
 
     Parameters
     ----------
@@ -82,12 +130,12 @@ def read_excel(
     Returns
     -------
     numpyai_dashboard.array
-        A 2-D float64 array whose ``.columns`` holds the retained column names.
+        Whose ``.columns`` holds the column names in order.
 
     Raises
     ------
     NumpyAIError
-        If the sheet is empty, or if no column can be represented numerically.
+        If the file extension is unsupported, or the sheet has no data.
     """
     suffix = Path(path).suffix.lower()
     if suffix not in EXCEL_SUFFIXES:
@@ -133,38 +181,23 @@ def read_excel(
     if any(len(r) != width for r in body):
         body = [list(r) + [None] * (width - len(r)) for r in body]
 
-    kept_names: list[str] = []
-    kept_columns: list[np.ndarray] = []
-    rejected: list[str] = []
+    # Rows are padded to `width` above, so the transpose is strictly aligned.
+    columns = [_convert_column(column) for column in zip(*body, strict=True)]
 
-    # Rows are padded to `width` above, so both zips are strictly aligned.
-    for name, column in zip(names, zip(*body, strict=True), strict=True):
-        cleaned = [np.nan if _is_blank(v) else v for v in column]
-        try:
-            kept_columns.append(np.asarray(cleaned, dtype=np.float64))
-        except (TypeError, ValueError):
-            rejected.append(name)
-            continue
-        kept_names.append(name)
-
-    if rejected:
-        warnings.warn(
-            f"read_excel dropped {len(rejected)} non-numeric column(s): "
-            f"{', '.join(rejected)}. NumpyAI arrays are numeric-only.",
-            stacklevel=2,
+    if all(col.dtype == np.float64 for col in columns):
+        return array(
+            np.column_stack(columns),
+            columns=names,
+            verbose=verbose,
+            model=model,
+            max_tries=max_tries,
         )
 
-    if not kept_columns:
-        raise NumpyAIError(
-            f"no numeric columns in sheet {sheet!r} of {path!r} "
-            f"(found: {', '.join(names)})"
-        )
-
-    data = np.column_stack(kept_columns)
-    return array(
-        data,
-        columns=kept_names,
-        verbose=verbose,
-        model=model,
-        max_tries=max_tries,
+    record_dtype = np.dtype(
+        [(name, col.dtype) for name, col in zip(names, columns, strict=True)]
     )
+    table = np.empty(len(body), dtype=record_dtype)
+    for name, col in zip(names, columns, strict=True):
+        table[name] = col
+
+    return array(table, verbose=verbose, model=model, max_tries=max_tries)

@@ -38,8 +38,9 @@ class array:
         Number of code-generation attempts before giving up (default: 3).
     columns:
         Optional names for the columns of a 2-D array. Populated automatically by
-        :func:`numpyai_dashboard.read_excel`; passed to the LLM so it can refer to columns
-        by name instead of by index.
+        :func:`numpyai_dashboard.read_excel`; passed to the LLM so it can refer to
+        columns by name instead of by index. For a structured array the names come
+        from the dtype itself and this argument is unnecessary.
     """
 
     def __init__(
@@ -56,6 +57,11 @@ class array:
 
         if columns is not None:
             columns = list(columns)
+            if data.dtype.names is not None:
+                raise ValueError(
+                    "columns cannot be given for a structured array; its dtype "
+                    "already names the fields"
+                )
             if data.ndim != 2:
                 raise ValueError(f"columns requires a 2-D array, got {data.ndim}-D")
             if len(columns) != data.shape[1]:
@@ -63,7 +69,7 @@ class array:
                     f"got {len(columns)} column names for {data.shape[1]} columns"
                 )
 
-        self.columns = columns
+        self._columns = columns
         self._data = data
         self._metadata_collector = NumpyMetadataCollector()
         self._validator = NumpyValidator()
@@ -75,6 +81,18 @@ class array:
         self.current_prompt: str | None = None
         self.metadata = self._metadata_collector.metadata(self._data, self.columns)
         self._model = model
+
+    @property
+    def columns(self) -> list[str] | None:
+        """Column names, from the structured dtype if there is one."""
+        if self._data.dtype.names is not None:
+            return list(self._data.dtype.names)
+        return self._columns
+
+    @property
+    def is_table(self) -> bool:
+        """True when the underlying array is structured (mixed column types)."""
+        return self._data.dtype.names is not None
 
     # ------------------------------------------------------------------
     # numpy interop
@@ -141,7 +159,17 @@ class array:
         self._data[index] = value
 
     def __repr__(self) -> str:
-        return f"numpyai_dashboard.array(shape={self._data.shape}, dtype={self._data.dtype})"
+        if self.is_table:
+            fields = ", ".join(
+                f"{n}:{self._data.dtype[n].str}" for n in self._data.dtype.names
+            )
+            return (
+                f"numpyai_dashboard.array(rows={len(self._data)}, columns=[{fields}])"
+            )
+        return (
+            f"numpyai_dashboard.array(shape={self._data.shape}, "
+            f"dtype={self._data.dtype})"
+        )
 
     def __getattr__(self, name):
         attr = getattr(self._data, name)
@@ -160,11 +188,14 @@ class array:
 
     @data.setter
     def data(self, new_array: np.ndarray) -> None:
-        # Column names only survive if the new array is still the same width.
-        if self.columns is not None and (
-            new_array.ndim != 2 or new_array.shape[1] != len(self.columns)
+        # Explicit column names only survive if the new array is the same width.
+        # A structured array carries its own names, so nothing to drop there.
+        if self._columns is not None and (
+            new_array.dtype.names is not None
+            or new_array.ndim != 2
+            or new_array.shape[1] != len(self._columns)
         ):
-            self.columns = None
+            self._columns = None
         self._data = new_array
         self.metadata = self._metadata_collector.metadata(self._data, self.columns)
 

@@ -12,6 +12,43 @@ import numpy as np
 _PREVIEW_ROWS = 10
 _PREVIEW_COLS = 20
 
+#: A text column with at most this many distinct values is treated as
+#: categorical, and its values are listed in the prompt.
+_MAX_CATEGORIES = 20
+
+
+def describe_field(col: np.ndarray) -> dict:
+    """Summarise one column of a structured array for the LLM prompt."""
+    info: dict = {"dtype": str(col.dtype)}
+
+    if np.issubdtype(col.dtype, np.number):
+        info["kind"] = "numeric"
+        with contextlib.suppress(TypeError, ValueError):
+            nan_mask = np.isnan(col)
+            info["has_nan"] = bool(nan_mask.any())
+            if not nan_mask.all():
+                info["min"] = float(np.nanmin(col))
+                info["max"] = float(np.nanmax(col))
+
+    elif np.issubdtype(col.dtype, np.datetime64):
+        info["kind"] = "datetime"
+        present = col[~np.isnat(col)]
+        info["has_nat"] = bool(len(present) != len(col))
+        if len(present):
+            info["min"] = str(present.min())
+            info["max"] = str(present.max())
+
+    else:
+        info["kind"] = "text"
+        distinct = np.unique(col)
+        info["n_unique"] = int(len(distinct))
+        if len(distinct) <= _MAX_CATEGORIES:
+            info["categories"] = [str(v) for v in distinct]
+        else:
+            info["examples"] = [str(v) for v in distinct[:5]]
+
+    return info
+
 
 class NumpyMetadataCollector:
     """Collect metadata from NumPy arrays and NumPy-operation outputs."""
@@ -31,7 +68,16 @@ class NumpyMetadataCollector:
             "byte_size": data.nbytes,
         }
 
-        if columns is not None:
+        if data.dtype.names is not None:
+            # Structured array: describe every field, since the summary stats
+            # below only apply to homogeneous numeric arrays.
+            md["is_table"] = True
+            md["rows"] = len(data)
+            md["columns"] = list(data.dtype.names)
+            md["column_summary"] = {
+                name: describe_field(data[name]) for name in data.dtype.names
+            }
+        elif columns is not None:
             md["columns"] = list(columns)
 
         if np.issubdtype(data.dtype, np.number):
