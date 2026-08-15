@@ -153,6 +153,15 @@ Anything Pydantic AI supports: Google (Gemini), OpenAI, Anthropic, Groq, Mistral
 Ollama, and OpenAI-compatible endpoints. See the
 [Pydantic AI model docs](https://ai.pydantic.dev/models/) for the full list.
 
+## Examples
+
+Runnable notebooks live in [`examples/`](examples). Start with
+[`test_all_functionality_excel.ipynb`](examples/test_all_functionality_excel.ipynb),
+which loads the bundled `sample_sales.xlsx` and walks from spreadsheet to
+DataFrame to natural-language questions.
+
+They expect `pip install -e ".[all,dev]"` and a provider key in `examples/.env`.
+
 ## Contributing
 
 - Format with `black` and lint with `ruff`.
