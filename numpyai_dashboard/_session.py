@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 import numpy as np
@@ -12,7 +11,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
-from ._ai import DEFAULT_MODEL, CodeResponse, NumpyCodeGen
+from ._ai import DEFAULT_MODEL, ChatResult, CodeResponse, NumpyCodeGen
 from ._array import array
 from ._exceptions import NumpyAIError
 from ._utils import NumpyMetadataCollector, clean_code, optional_globals
@@ -72,8 +71,13 @@ class NumpyAISession:
                 "metadata": self._metadata_collector.metadata(arr),
             }
 
-    def chat(self, query: str) -> Any:
-        """Handle a natural-language query across the session's arrays."""
+    def chat(self, query: str) -> ChatResult:
+        """Answer a natural-language query across the session's arrays.
+
+        Returns a :class:`ChatResult` carrying the answer in ``.value`` along
+        with the code that produced it, the judgment, and any errors. Failure is
+        reported through ``.ok`` rather than by raising.
+        """
         if not isinstance(query, str):
             raise TypeError("query must be a string")
 
@@ -83,6 +87,7 @@ class NumpyAISession:
 
         error_messages: list[str] = []
         prior_feedback: str | None = None
+        last_judgment = None
         for attempt in range(1, self.MAX_TRIES + 1):
             is_last = attempt == self.MAX_TRIES
             if self.verbose:
@@ -115,6 +120,7 @@ class NumpyAISession:
                 judgment = self._code_generator.judge(
                     query=query, code=response.code, metadata=str(explainer or "")
                 )
+                last_judgment = judgment
                 if self.verbose or is_last:
                     self._print_judgment(judgment)
 
@@ -130,7 +136,14 @@ class NumpyAISession:
                                 f"[bold green]Output\n {preview}", border_style="yellow"
                             )
                         )
-                    return result
+                    return ChatResult(
+                        value=result,
+                        code=response.code,
+                        description=str(explainer or ""),
+                        judgment=judgment,
+                        attempts=attempt,
+                        errors=error_messages,
+                    )
 
                 prior_feedback = f"judgment rejected: {judgment.reason}"
                 error_messages.append(f"Attempt {attempt}: {prior_feedback}")
@@ -146,12 +159,12 @@ class NumpyAISession:
                         )
                     )
 
+        # Failure is carried in the return value; the table is still printed
+        # because that is how a notebook user sees what went wrong.
         self._print_error_table(error_messages)
-        warnings.warn(
-            f"Validation failed after {self.MAX_TRIES} attempts. Please check the validity of the code.",
-            stacklevel=2,
+        return ChatResult(
+            judgment=last_judgment, attempts=self.MAX_TRIES, errors=error_messages
         )
-        return None
 
     def _generate_response(
         self, query: str, prior_feedback: str | None = None

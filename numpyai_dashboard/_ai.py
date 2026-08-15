@@ -127,6 +127,15 @@ class ChatResult(BaseModel):
         """True when an attempt produced a value the judge accepted."""
         return self.judgment is not None and self.judgment.interprets_query_correctly
 
+    def __repr__(self) -> str:
+        # This is what a notebook cell displays, so lead with the answer on
+        # success and with the reason on failure.
+        if not self.ok:
+            reason = self.judgment.reason if self.judgment else "no result produced"
+            return f"ChatResult(failed after {self.attempts} attempts: {reason})"
+        suffix = "" if self.attempts == 1 else f", attempts={self.attempts}"
+        return f"ChatResult({self.value!r}{suffix})"
+
 
 JUDGE_SYSTEM_PROMPT = (
     "You are an impartial reviewer. You classify whether a short NumPy snippet "

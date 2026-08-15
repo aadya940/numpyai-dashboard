@@ -100,13 +100,13 @@ df = npi.read_csv("sales.csv.gz", usecols=["region", "units"])
 Delimited text carries no types, so pass `parse_dates=["order_date"]` through to
 pandas for real `datetime64` columns.
 
-### Getting the code, not just the answer
+### What a question returns
 
-`chat` returns the answer and prints everything else. `ask` returns it all as a
-`ChatResult`, which is what a UI needs since it cannot read a console.
+`chat` returns a `ChatResult`, not a bare value, so the code and the verdict are
+available to a caller rather than only printed.
 
 ```python
-result = arr.ask("Total revenue after discount.")
+result = arr.chat("Total revenue after discount.")
 
 result.value        # the answer
 result.code         # the NumPy that produced it
@@ -116,7 +116,8 @@ result.attempts     # how many tries it took
 result.ok           # False if every attempt was rejected
 ```
 
-`ask` never warns or raises on failure; `result.ok` carries that.
+Failure never raises. `result.ok` is False, `result.value` is None, and
+`result.errors` holds one entry per attempt.
 
 ### Single array
 
@@ -127,7 +128,7 @@ import numpyai_dashboard as npi
 data = np.array([[1, 2, 3, 4, 5, np.nan], [np.nan, 3, 5, 3.1415, 2, 2]])
 arr = npi.array(data)  # defaults to google:gemini-2.5-flash
 
-print(arr.chat("Compute the height and width of the image using NumPy."))
+print(arr.chat("Compute the height and width of the image using NumPy.").value)
 # Expected output: (2, 6)
 ```
 
@@ -153,7 +154,8 @@ arr1 = np.array([[1, 2, 3], [4, 5, 6]])
 arr2 = np.random.random((2, 3))
 
 sess = npi.NumpyAISession([arr1, arr2])
-imputed = sess.chat("Impute the first array with the mean of the second array.")
+result = sess.chat("Impute the first array with the mean of the second array.")
+imputed = result.value
 ```
 
 ### Diagnosis

@@ -1,4 +1,4 @@
-"""Tests for chat/ask, with the model stubbed out. No LLM, no API key."""
+"""Tests for chat, with the model stubbed out. No LLM, no API key."""
 
 from __future__ import annotations
 
@@ -45,16 +45,16 @@ REJECTED = [("output = arr.min()\nmetadata = 'min'", "min", False, "asked for ma
 
 
 # --------------------------------------------------------------------------
-# ask returns the whole record
+# chat returns the whole record
 # --------------------------------------------------------------------------
 
 
-def test_ask_returns_a_chatresult():
-    assert isinstance(make(PASSES).ask("total"), ChatResult)
+def test_chat_returns_a_chatresult():
+    assert isinstance(make(PASSES).chat("total"), ChatResult)
 
 
-def test_ask_carries_value_code_and_description():
-    result = make(PASSES).ask("total")
+def test_chat_carries_value_code_and_description():
+    result = make(PASSES).chat("total")
     assert result.value == 10.0
     assert result.code == "output = arr.sum()\nmetadata = 'sum of arr'"
     assert result.description == "sum of arr"
@@ -62,13 +62,13 @@ def test_ask_carries_value_code_and_description():
     assert result.ok is True
 
 
-def test_ask_carries_the_judgment():
-    result = make(PASSES).ask("total")
+def test_chat_carries_the_judgment():
+    result = make(PASSES).chat("total")
     assert result.judgment.interprets_query_correctly is True
 
 
-def test_ask_reports_failure_without_warning(recwarn):
-    result = make(REJECTED, max_tries=2).ask("largest")
+def test_chat_reports_failure_without_warning(recwarn):
+    result = make(REJECTED, max_tries=2).chat("largest")
     assert result.ok is False
     assert result.value is None
     assert result.attempts == 2
@@ -77,34 +77,33 @@ def test_ask_reports_failure_without_warning(recwarn):
     assert [w for w in recwarn if issubclass(w.category, UserWarning)] == []
 
 
-def test_ask_counts_attempts_until_accepted():
+def test_chat_counts_attempts_until_accepted():
     script = REJECTED + PASSES
-    result = make(script, max_tries=3).ask("total")
+    result = make(script, max_tries=3).chat("total")
     assert result.ok is True
     assert result.attempts == 2
     assert len(result.errors) == 1
 
 
 # --------------------------------------------------------------------------
-# chat keeps its old contract exactly
+# display and misuse
 # --------------------------------------------------------------------------
 
 
-def test_chat_returns_the_bare_value():
-    assert make(PASSES).chat("total") == 10.0
+def test_repr_leads_with_the_answer():
+    assert repr(make(PASSES).chat("total")) == "ChatResult(np.float64(10.0))"
 
 
-def test_chat_returns_none_and_warns_on_failure():
-    arr = make(REJECTED, max_tries=2)
-    with pytest.warns(UserWarning, match="Validation failed after 2 attempts"):
-        assert arr.chat("largest") is None
+def test_repr_shows_attempts_when_more_than_one():
+    assert "attempts=2" in repr(make(REJECTED + PASSES, max_tries=3).chat("total"))
+
+
+def test_repr_explains_failure():
+    text = repr(make(REJECTED, max_tries=2).chat("largest"))
+    assert "failed after 2 attempts" in text
+    assert "asked for max" in text
 
 
 def test_chat_rejects_a_non_string_query():
     with pytest.raises(TypeError, match="query must be a string"):
         make(PASSES).chat(42)
-
-
-def test_ask_rejects_a_non_string_query():
-    with pytest.raises(TypeError, match="query must be a string"):
-        make(PASSES).ask(42)

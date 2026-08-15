@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from operator import add, floordiv, matmul, mod, mul, pow, sub, truediv
 from typing import Any
@@ -179,28 +178,13 @@ class array:
     # ------------------------------------------------------------------
     # chat
     # ------------------------------------------------------------------
-    def chat(self, query: str) -> Any:
-        """Handle a natural-language query by generating and executing NumPy code.
+    def chat(self, query: str) -> ChatResult:
+        """Answer a natural-language query by generating and executing NumPy code.
 
-        Returns the result, or ``None`` after ``max_tries`` failed attempts. Use
-        :meth:`ask` when you also need the code, the judgment, or the errors,
-        which this method only prints.
-        """
-        result = self.ask(query)
-        if not result.ok:
-            self._print_error_table(result.errors)
-            warnings.warn(
-                f"Validation failed after {self.MAX_TRIES} attempts. Please check the validity of the code.",
-                stacklevel=2,
-            )
-        return result.value
-
-    def ask(self, query: str) -> ChatResult:
-        """Like :meth:`chat`, but returns everything the query produced.
-
-        The value, the code that produced it, the model's description of it, the
-        judgment, and one error per failed attempt. Nothing is raised and nothing
-        is warned about; failure shows up as ``result.ok`` being False.
+        Returns a :class:`ChatResult` carrying the answer in ``.value`` along
+        with the code that produced it, the judgment, and any errors. Failure is
+        reported through ``.ok`` rather than by raising, so a bad query never
+        ends a session.
         """
         if not isinstance(query, str):
             raise TypeError("query must be a string")
@@ -268,6 +252,10 @@ class array:
                         f"[bold red]✗[/bold red] Attempt {attempt} failed: {e}"
                     )
 
+        # Every attempt was rejected. The failure is carried in the return value,
+        # but the table is still printed because that is how a notebook user sees
+        # what went wrong.
+        self._print_error_table(errors)
         return ChatResult(
             judgment=last_judgment, attempts=self.MAX_TRIES, errors=errors
         )
