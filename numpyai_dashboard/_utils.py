@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import re
 from collections.abc import Sequence
 
@@ -11,6 +12,45 @@ import numpy as np
 #: Bounds on the array preview embedded in the LLM prompt.
 _PREVIEW_ROWS = 10
 _PREVIEW_COLS = 20
+
+
+#: Packages whose submodules are not imported eagerly, so they need the proxy.
+_LAZY_PACKAGES = ("scipy", "sklearn")
+
+
+class _SubmodulePackage:
+    """Wraps a package so ``pkg.submodule`` imports on first access.
+
+    SciPy and scikit-learn do not import their submodules eagerly, so generated
+    code calling ``scipy.stats.ttest_ind`` or ``sklearn.linear_model.Ridge``
+    would raise ``AttributeError`` even with the package itself available.
+    Importing every submodule up front would cost seconds on the first query
+    and guess at which ones matter, so the cost is deferred to first use.
+    """
+
+    def __init__(self, module) -> None:
+        self._module = module
+
+    def __getattr__(self, name: str):
+        # Guards against recursing through _module before __init__ assigns it.
+        if name == "_module":
+            raise AttributeError(name)
+        try:
+            return getattr(self._module, name)
+        except AttributeError:
+            pass
+        try:
+            return importlib.import_module(f"{self._module.__name__}.{name}")
+        except ImportError as exc:
+            raise AttributeError(
+                f"{self._module.__name__} has no attribute or submodule {name!r}"
+            ) from exc
+
+    def __dir__(self) -> list[str]:
+        return dir(self._module)
+
+    def __repr__(self) -> str:
+        return f"<{self._module.__name__} (submodules imported on demand)>"
 
 
 def optional_globals() -> dict:
@@ -27,23 +67,9 @@ def optional_globals() -> dict:
 
         namespace["plt"] = plt
 
-    with contextlib.suppress(ImportError):
-        import sklearn
-
-        namespace["sklearn"] = sklearn
-
-    with contextlib.suppress(ImportError):
-        import scipy
-
-        # SciPy does not import its submodules eagerly, so `scipy.stats` would
-        # raise AttributeError unless each one is pulled in explicitly here.
-        import scipy.interpolate  # noqa: F401
-        import scipy.linalg  # noqa: F401
-        import scipy.optimize  # noqa: F401
-        import scipy.signal  # noqa: F401
-        import scipy.stats  # noqa: F401
-
-        namespace["scipy"] = scipy
+    for name in _LAZY_PACKAGES:
+        with contextlib.suppress(ImportError):
+            namespace[name] = _SubmodulePackage(importlib.import_module(name))
 
     return namespace
 

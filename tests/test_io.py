@@ -1,4 +1,4 @@
-"""Tests for the spreadsheet loader. No LLM and no API key required."""
+"""Tests for the file loaders. No LLM and no API key required."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from _xlsx import write_xlsx
 
-from numpyai_dashboard import read_excel
+from numpyai_dashboard import read_csv, read_excel
 from numpyai_dashboard._exceptions import NumpyAIError
 
 pytest.importorskip("fastexcel", reason="needs numpyai-dashboard[excel]")
@@ -140,13 +140,6 @@ def test_header_only_sheet_is_empty_not_an_error(book):
 # --------------------------------------------------------------------------
 
 
-def test_csv_gets_a_pointed_error(tmp_path):
-    path = tmp_path / "data.csv"
-    path.write_text("a,b\n1,2\n")
-    with pytest.raises(NumpyAIError, match="CSV is not supported"):
-        read_excel(str(path))
-
-
 def test_unsupported_extension_lists_supported_ones(tmp_path):
     path = tmp_path / "data.parquet"
     path.write_bytes(b"")
@@ -160,3 +153,71 @@ def test_unknown_sheet_name_raises(book):
     path = book([["a"], [1]])
     with pytest.raises(SheetNotFoundError):
         read_excel(path, sheet="NoSuchSheet")
+
+
+# --------------------------------------------------------------------------
+# delimited text
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def csv_file(tmp_path):
+    def _write(text, name="data.csv"):
+        path = tmp_path / name
+        path.write_text(text)
+        return str(path)
+
+    return _write
+
+
+def test_read_csv_returns_a_dataframe(csv_file):
+    frame = read_csv(csv_file("a,b\n1,2.5\n"))
+    assert isinstance(frame, pd.DataFrame)
+    assert frame.columns.tolist() == ["a", "b"]
+
+
+def test_read_csv_blank_becomes_nan(csv_file):
+    frame = read_csv(csv_file("a,b\n1,\n"))
+    assert pd.isna(frame["b"][0])
+
+
+def test_read_csv_header_false_uses_positional_names(csv_file):
+    frame = read_csv(csv_file("1,2\n3,4\n"), header=False)
+    assert frame.columns.tolist() == ["col0", "col1"]
+
+
+def test_read_csv_n_rows_limits_the_read(csv_file):
+    assert read_csv(csv_file("a\n1\n2\n3\n"), n_rows=2).shape == (2, 1)
+
+
+def test_read_csv_infers_tab_separator(csv_file):
+    frame = read_csv(csv_file("a\tb\n1\t2\n", name="data.tsv"))
+    assert frame.columns.tolist() == ["a", "b"]
+
+
+def test_read_csv_handles_compression(tmp_path):
+    import gzip
+
+    path = tmp_path / "data.csv.gz"
+    with gzip.open(path, "wt") as handle:
+        handle.write("a,b\n1,2\n")
+    assert read_csv(str(path)).shape == (1, 2)
+
+
+def test_read_csv_forwards_kwargs_to_pandas(csv_file):
+    frame = read_csv(csv_file("a,b\n1,2\n"), usecols=["a"])
+    assert frame.columns.tolist() == ["a"]
+
+
+def test_read_csv_rejects_spreadsheets(tmp_path):
+    path = tmp_path / "book.xlsx"
+    path.write_bytes(b"")
+    with pytest.raises(NumpyAIError, match="Use read_excel"):
+        read_csv(str(path))
+
+
+def test_read_excel_points_at_read_csv(tmp_path):
+    path = tmp_path / "data.csv"
+    path.write_text("a,b\n1,2\n")
+    with pytest.raises(NumpyAIError, match="Use read_csv"):
+        read_excel(str(path))

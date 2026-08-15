@@ -4,21 +4,21 @@
 
 # numpyai-dashboard
 
-Load spreadsheets into [NumPy](https://github.com/numpy/numpy) and explore them in
-plain English.
+Load spreadsheets and CSVs into [NumPy](https://github.com/numpy/numpy) and explore
+them in plain English.
 
 Built on [Pydantic AI](https://ai.pydantic.dev/), so Google Gemini, OpenAI,
 Anthropic or any other supported model works without touching the library code.
 
-**Status:** early. The spreadsheet loading layer works; the dashboard layer is next.
+**Status:** early. The file loading layer works; the dashboard layer is next.
 
 Forked from [numpyai](https://github.com/aadya940/numpyai). It installs as
 `numpyai_dashboard`, so it will not collide with an existing `numpyai` install.
 
 ## Features
 
-- Load a spreadsheet into a DataFrame with one call, via a Rust reader. Text, dates
-  and numbers are all preserved, each with its own dtype.
+- Load a spreadsheet or CSV into a DataFrame with one call. Text, dates and numbers
+  are all preserved, each with its own dtype.
 - Ask questions in English; the library generates and executes NumPy code for you.
 - `numpyai_dashboard.Diagnosis` suggests analysis steps for your data.
 - `numpyai_dashboard.NumpyAISession` chats over multiple arrays at once.
@@ -36,6 +36,7 @@ Or install only the pieces you need:
 
 ```sh
 pip install "numpyai-dashboard[excel]"     # .xlsx/.xls/.xlsb/.ods loading
+pip install "numpyai-dashboard[csv]"       # .csv/.tsv loading
 pip install "numpyai-dashboard[google]"    # Google Gemini
 pip install "numpyai-dashboard[openai]"    # OpenAI
 pip install "numpyai-dashboard[anthropic]" # Anthropic Claude
@@ -98,6 +99,21 @@ wraps the Rust [calamine](https://github.com/tafia/calamine) parser and emits Ar
 data directly. Type inference happens in Rust and the data crosses into Python as
 columnar buffers rather than one object per cell, which measures about 3x faster and
 roughly half the memory of driving calamine from Python.
+
+### Loading delimited text
+
+Requires `numpyai-dashboard[csv]`. `read_csv` mirrors `read_excel`'s contract, and
+forwards any other keyword to `pandas.read_csv`.
+
+```python
+df = npi.read_csv("sales.csv")            # or header=False, n_rows=1000
+df = npi.read_csv("sales.tsv")            # tab inferred from the extension
+df = npi.read_csv("sales.csv.gz", usecols=["region", "units"])
+```
+
+Unlike a spreadsheet, delimited text carries no types, so a date column arrives as
+text. Pass `parse_dates=["order_date"]` through to pandas when you need real
+`datetime64`.
 
 ### Single array
 
@@ -166,7 +182,8 @@ They expect `pip install -e ".[all,dev]"` and a provider key in `examples/.env`.
 
 - Format with `black` and lint with `ruff`.
 - Add tests under `tests/`.
-- Public API (`array`, `NumpyAISession`, `Diagnosis`, `read_excel`) should stay stable.
+- Public API (`array`, `NumpyAISession`, `Diagnosis`, `read_excel`, `read_csv`)
+  should stay stable.
 
 ## License
 

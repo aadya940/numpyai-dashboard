@@ -3,7 +3,7 @@
 from ._ai import Judgment
 from ._array import array
 from ._diagnosis import Diagnosis
-from ._io import read_excel
+from ._io import read_csv, read_excel
 from ._session import NumpyAISession
 
 __all__ = [
@@ -11,5 +11,6 @@ __all__ = [
     "NumpyAISession",
     "Diagnosis",
     "Judgment",
+    "read_csv",
     "read_excel",
 ]

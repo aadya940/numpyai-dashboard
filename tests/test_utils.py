@@ -9,6 +9,7 @@ import pytest
 
 from numpyai_dashboard._utils import (
     NumpyMetadataCollector,
+    _SubmodulePackage,
     clean_code,
     optional_globals,
 )
@@ -82,9 +83,49 @@ def test_optional_globals_only_exposes_installed_libraries():
 
 
 def test_scipy_submodules_resolve_when_present():
-    """`import scipy` alone leaves scipy.stats unresolved, so they are pulled in."""
+    """A bare `import scipy` leaves scipy.stats unresolved; the proxy fixes it."""
     scipy = optional_globals().get("scipy")
     if scipy is None:
         pytest.skip("scipy not installed")
     for sub in ("stats", "optimize", "signal", "linalg", "interpolate"):
         assert hasattr(scipy, sub), f"scipy.{sub} would fail in generated code"
+
+
+def test_sklearn_submodules_resolve_when_present():
+    sklearn = optional_globals().get("sklearn")
+    if sklearn is None:
+        pytest.skip("scikit-learn not installed")
+    for sub in ("linear_model", "preprocessing", "cluster", "metrics"):
+        assert hasattr(sklearn, sub), f"sklearn.{sub} would fail in generated code"
+
+
+# The proxy itself is exercised against stdlib packages that also defer their
+# submodule imports, so these run everywhere rather than only where scipy is.
+
+
+def test_proxy_imports_submodule_on_access():
+    import xml
+
+    assert not hasattr(xml, "etree") or True  # bare package may lack it
+    assert _SubmodulePackage(xml).etree.__name__ == "xml.etree"
+
+
+def test_proxy_reaches_nested_attributes():
+    import xml
+
+    assert _SubmodulePackage(xml).etree.ElementTree.__name__ == "xml.etree.ElementTree"
+
+
+def test_proxy_passes_through_real_attributes():
+    import xml
+
+    assert _SubmodulePackage(xml).__name__ == "xml"
+
+
+def test_proxy_raises_attribute_error_not_import_error():
+    """Generated code sees a normal AttributeError, not a leaked ImportError."""
+    import xml
+
+    proxy = _SubmodulePackage(xml)
+    with pytest.raises(AttributeError, match="no attribute or submodule"):
+        _ = proxy.nope
