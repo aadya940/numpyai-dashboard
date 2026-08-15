@@ -16,7 +16,7 @@ from rich.table import Table
 
 from ._ai import DEFAULT_MODEL, CodeResponse, NumpyCodeGen
 from ._exceptions import NumpyAIError
-from ._utils import NumpyMetadataCollector, clean_code
+from ._utils import NumpyMetadataCollector, clean_code, optional_globals
 from ._validator import NumpyValidator
 
 console = Console()
@@ -299,19 +299,7 @@ class array:
         Returns ``(result, explainer)``. On error, returns ``(None, None)``.
         """
         try:
-            local_vars: dict[str, Any] = {"np": np}
-            try:
-                import matplotlib.pyplot as plt  # noqa: F401
-
-                local_vars["plt"] = plt
-            except ImportError:
-                pass
-            try:
-                import sklearn  # noqa: F401
-
-                local_vars["sklearn"] = sklearn
-            except ImportError:
-                pass
+            local_vars: dict[str, Any] = {"np": np, **optional_globals()}
 
             if isinstance(args, dict):
                 local_vars.update(args)

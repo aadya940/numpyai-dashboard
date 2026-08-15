@@ -199,8 +199,10 @@ class NumpyCodeGen:
 CRITICAL INSTRUCTIONS:
 1. The array is ALREADY defined as `arr`. DO NOT create a new array with `arr = ...`.
 2. DO NOT IMPORT any libraries except numpy (already imported as `np`).
-3. Prefer NumPy for everything. `sklearn` and `matplotlib.pyplot` (as `plt`) are
-   available as a last resort - do not use them unless necessary.
+3. Prefer NumPy for everything. `scipy`, `sklearn` and `matplotlib.pyplot` (as
+   `plt`) are available as a last resort - do not use them unless necessary.
+   Reach for `scipy` only where NumPy genuinely lacks the routine, such as
+   `scipy.stats` tests or `scipy.optimize` fitting.
 4. Return ONLY code that operates on the existing `arr` variable.
 5. There MUST be exactly one variable named `output` containing what the user asked for.
 6. There MUST be exactly one variable named `metadata` - a short string describing `output`.
@@ -263,8 +265,8 @@ CORRECT EXAMPLES:
 CRITICAL INSTRUCTIONS:
 1. These arrays are ALREADY defined: {names}. DO NOT redefine them.
 2. DO NOT IMPORT any libraries except numpy (already imported as `np`).
-3. Prefer NumPy. `sklearn` and `matplotlib.pyplot` (as `plt`) are available only as a
-   last resort.
+3. Prefer NumPy. `scipy`, `sklearn` and `matplotlib.pyplot` (as `plt`) are available
+   only as a last resort.
 4. There MUST be exactly one variable named `output` containing the result of the query.
 5. There MUST be exactly one variable named `metadata` - a short string describing `output`.
 6. Ensure data is properly cleaned before executing any computation.

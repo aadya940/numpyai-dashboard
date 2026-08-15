@@ -36,15 +36,17 @@ google = ["pydantic-ai-slim[google]>=0.0.13"]
 openai = ["pydantic-ai-slim[openai]>=0.0.13"]
 anthropic = ["pydantic-ai-slim[anthropic]>=0.0.13"]
 excel = ["fastexcel[pandas]>=0.20"]
-extras = ["matplotlib>=3.8", "scikit-learn>=1.4"]
+extras = ["matplotlib>=3.8", "scikit-learn>=1.4", "scipy>=1.11"]
 all = [
     "pydantic-ai[all]>=0.0.13",
     "matplotlib>=3.8",
     "scikit-learn>=1.4",
+    "scipy>=1.11",
     "fastexcel[pandas]>=0.20",
 ]
 dev = [
     "fastexcel[pandas]>=0.20",
+    "scipy>=1.11",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "black>=24.0",

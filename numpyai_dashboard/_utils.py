@@ -13,6 +13,41 @@ _PREVIEW_ROWS = 10
 _PREVIEW_COLS = 20
 
 
+def optional_globals() -> dict:
+    """Optional libraries exposed to generated code, when they are installed.
+
+    Generated code is told not to import anything, so whatever it may reach for
+    has to be in the namespace already. Each library is optional; a missing one
+    is simply absent rather than an error.
+    """
+    namespace: dict = {}
+
+    with contextlib.suppress(ImportError):
+        import matplotlib.pyplot as plt
+
+        namespace["plt"] = plt
+
+    with contextlib.suppress(ImportError):
+        import sklearn
+
+        namespace["sklearn"] = sklearn
+
+    with contextlib.suppress(ImportError):
+        import scipy
+
+        # SciPy does not import its submodules eagerly, so `scipy.stats` would
+        # raise AttributeError unless each one is pulled in explicitly here.
+        import scipy.interpolate  # noqa: F401
+        import scipy.linalg  # noqa: F401
+        import scipy.optimize  # noqa: F401
+        import scipy.signal  # noqa: F401
+        import scipy.stats  # noqa: F401
+
+        namespace["scipy"] = scipy
+
+    return namespace
+
+
 class NumpyMetadataCollector:
     """Collect metadata from NumPy arrays and NumPy-operation outputs."""
 

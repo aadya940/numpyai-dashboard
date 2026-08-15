@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-import numpy as np
+import importlib.util
 
-from numpyai_dashboard._utils import NumpyMetadataCollector, clean_code
+import numpy as np
+import pytest
+
+from numpyai_dashboard._utils import (
+    NumpyMetadataCollector,
+    clean_code,
+    optional_globals,
+)
 from numpyai_dashboard._validator import NumpyValidator
 
 
@@ -49,3 +56,35 @@ def test_validator_accepts_good_code():
 
 def test_validator_rejects_bad_code():
     assert NumpyValidator().validate_code("output = 1 +") is False
+
+
+# --------------------------------------------------------------------------
+# optional libraries offered to generated code
+# --------------------------------------------------------------------------
+
+
+def test_optional_globals_never_raises():
+    """Every library is optional; missing ones are absent, not an error."""
+    assert isinstance(optional_globals(), dict)
+
+
+def test_optional_globals_only_exposes_installed_libraries():
+    ns = optional_globals()
+    for name, module in [
+        ("plt", "matplotlib"),
+        ("sklearn", "sklearn"),
+        ("scipy", "scipy"),
+    ]:
+        installed = importlib.util.find_spec(module) is not None
+        assert (
+            name in ns
+        ) is installed, f"{name} present={name in ns}, installed={installed}"
+
+
+def test_scipy_submodules_resolve_when_present():
+    """`import scipy` alone leaves scipy.stats unresolved, so they are pulled in."""
+    scipy = optional_globals().get("scipy")
+    if scipy is None:
+        pytest.skip("scipy not installed")
+    for sub in ("stats", "optimize", "signal", "linalg", "interpolate"):
+        assert hasattr(scipy, sub), f"scipy.{sub} would fail in generated code"

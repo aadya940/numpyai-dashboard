@@ -15,7 +15,7 @@ from rich.table import Table
 from ._ai import DEFAULT_MODEL, CodeResponse, NumpyCodeGen
 from ._array import array
 from ._exceptions import NumpyAIError
-from ._utils import NumpyMetadataCollector, clean_code
+from ._utils import NumpyMetadataCollector, clean_code, optional_globals
 from ._validator import NumpyValidator
 
 console = Console()
@@ -195,19 +195,11 @@ class NumpyAISession:
         if code_out is not None:
             local_vars["code_out"] = code_out
 
-        exec_globals: dict[str, Any] = {"__builtins__": __builtins__, "np": np}
-        try:
-            import matplotlib.pyplot as plt  # noqa: F401
-
-            exec_globals["plt"] = plt
-        except ImportError:
-            pass
-        try:
-            import sklearn  # noqa: F401
-
-            exec_globals["sklearn"] = sklearn
-        except ImportError:
-            pass
+        exec_globals: dict[str, Any] = {
+            "__builtins__": __builtins__,
+            "np": np,
+            **optional_globals(),
+        }
 
         try:
             exec(code, exec_globals, local_vars)
