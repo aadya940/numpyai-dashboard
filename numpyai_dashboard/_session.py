@@ -77,7 +77,9 @@ class NumpyAISession:
         if not isinstance(query, str):
             raise TypeError("query must be a string")
 
-        console.print(Panel(f"[bold cyan]Query:[/bold cyan] {query}", border_style="blue"))
+        console.print(
+            Panel(f"[bold cyan]Query:[/bold cyan] {query}", border_style="blue")
+        )
 
         error_messages: list[str] = []
         prior_feedback: str | None = None
@@ -97,7 +99,9 @@ class NumpyAISession:
                 result, explainer = self._execute(response.code)
 
                 if result is None:
-                    error_messages.append(f"Attempt {attempt}: execution returned None.")
+                    error_messages.append(
+                        f"Attempt {attempt}: execution returned None."
+                    )
                     prior_feedback = "code execution produced no `output` variable"
                     if self.verbose:
                         console.print(
@@ -116,9 +120,15 @@ class NumpyAISession:
 
                 if judgment.interprets_query_correctly:
                     if self.verbose or is_last:
-                        preview = result if not isinstance(result, np.ndarray) else type(result)
+                        preview = (
+                            result
+                            if not isinstance(result, np.ndarray)
+                            else type(result)
+                        )
                         console.print(
-                            Panel(f"[bold green]Output\n {preview}", border_style="yellow")
+                            Panel(
+                                f"[bold green]Output\n {preview}", border_style="yellow"
+                            )
                         )
                     return result
 
@@ -188,11 +198,13 @@ class NumpyAISession:
         exec_globals: dict[str, Any] = {"__builtins__": __builtins__, "np": np}
         try:
             import matplotlib.pyplot as plt  # noqa: F401
+
             exec_globals["plt"] = plt
         except ImportError:
             pass
         try:
             import sklearn  # noqa: F401
+
             exec_globals["sklearn"] = sklearn
         except ImportError:
             pass

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from _xlsx import write_xlsx
 
 from numpyai_dashboard import read_excel
 from numpyai_dashboard._exceptions import NumpyAIError
-
-from _xlsx import write_xlsx
 
 pytest.importorskip("python_calamine", reason="needs numpyai-dashboard[excel]")
 
@@ -87,7 +86,10 @@ def test_columns_reach_the_metadata(book):
 
 def test_no_numeric_columns_raises(book):
     path = book([["name"], ["alpha"], ["beta"]])
-    with pytest.warns(UserWarning), pytest.raises(NumpyAIError, match="no numeric columns"):
+    with (
+        pytest.warns(UserWarning),
+        pytest.raises(NumpyAIError, match="no numeric columns"),
+    ):
         read_excel(path)
 
 
@@ -118,6 +120,8 @@ def test_unsupported_extension_lists_supported_ones(tmp_path):
 
 
 def test_unknown_sheet_name_raises(book):
+    from python_calamine import WorksheetNotFound
+
     path = book([["a"], [1]])
-    with pytest.raises(Exception):
+    with pytest.raises(WorksheetNotFound):
         read_excel(path, sheet="NoSuchSheet")

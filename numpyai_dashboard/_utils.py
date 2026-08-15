@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 from collections.abc import Sequence
 
@@ -47,7 +48,11 @@ class NumpyMetadataCollector:
             except (TypeError, ValueError):
                 pass
 
-        if data.size > 0 and data.size <= 10_000 and np.issubdtype(data.dtype, np.number):
+        if (
+            data.size > 0
+            and data.size <= 10_000
+            and np.issubdtype(data.dtype, np.number)
+        ):
             try:
                 md["zeros_count"] = int(np.count_nonzero(data == 0))
                 md["non_zeros_count"] = int(np.count_nonzero(data))
@@ -101,7 +106,8 @@ class NumpyMetadataCollector:
                 }
             )
 
-            try:
+            # Non-numeric dtypes raise here; the summary stats are best-effort.
+            with contextlib.suppress(TypeError, ValueError):
                 metadata.update(
                     {
                         "min": float(output.min()),
@@ -110,8 +116,6 @@ class NumpyMetadataCollector:
                         "std": float(output.std()),
                     }
                 )
-            except (TypeError, ValueError):
-                pass
 
             if output.size > 0:
                 sample_size = min(5, output.size)

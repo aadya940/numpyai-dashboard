@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import Awaitable
 from functools import cached_property
-from typing import Any, Awaitable, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
@@ -42,6 +43,7 @@ def _run_coro(coro: Awaitable[T]) -> T:
     """
     fut = asyncio.run_coroutine_threadsafe(coro, _get_worker_loop())  # type: ignore[arg-type]
     return fut.result()
+
 
 DEFAULT_MODEL = "google:gemini-2.5-flash"
 
@@ -180,7 +182,9 @@ class NumpyCodeGen:
         columns = metadata.get("columns")
         column_block = ""
         if columns:
-            listing = "\n".join(f"    arr[:, {i}] -> {c}" for i, c in enumerate(columns))
+            listing = "\n".join(
+                f"    arr[:, {i}] -> {c}" for i, c in enumerate(columns)
+            )
             column_block = (
                 "\n`arr` is a 2-D table whose columns are, in order:\n"
                 f"{listing}\n"

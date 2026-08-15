@@ -29,13 +29,17 @@ class Diagnosis:
             self._type = "multi"
             self._metadata = data._context
         else:
-            raise TypeError("`data` must be a numpyai_dashboard.array or NumpyAISession")
+            raise TypeError(
+                "`data` must be a numpyai_dashboard.array or NumpyAISession"
+            )
 
         self.MAX_TRIES = max_tries
         self._code_generator = NumpyCodeGen(model=data._model)
 
     def _diagnosis_prompt(self, objective: str | None = None) -> str:
-        data_type = "NumPy array" if self._type == "single" else "collection of NumPy arrays"
+        data_type = (
+            "NumPy array" if self._type == "single" else "collection of NumPy arrays"
+        )
 
         prompt = f"""# NumPy Data Analysis Assistant
 

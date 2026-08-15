@@ -14,8 +14,8 @@ from typing import Any
 
 import numpy as np
 
-from ._array import array
 from ._ai import DEFAULT_MODEL
+from ._array import array
 from ._exceptions import NumpyAIError
 
 #: Extensions the calamine backend understands.
@@ -96,7 +96,9 @@ def read_excel(
             if suffix == ".csv"
             else f" Supported: {', '.join(EXCEL_SUFFIXES)}."
         )
-        raise NumpyAIError(f"read_excel cannot read {suffix or 'extensionless'} files.{hint}")
+        raise NumpyAIError(
+            f"read_excel cannot read {suffix or 'extensionless'} files.{hint}"
+        )
 
     calamine = _load_calamine()
 
@@ -125,9 +127,7 @@ def read_excel(
         body = rows
 
     if not body:
-        raise NumpyAIError(
-            f"sheet {sheet!r} in {path!r} has a header but no data rows"
-        )
+        raise NumpyAIError(f"sheet {sheet!r} in {path!r} has a header but no data rows")
 
     # Pad ragged rows so the transpose below is well-formed.
     if any(len(r) != width for r in body):
@@ -137,7 +137,8 @@ def read_excel(
     kept_columns: list[np.ndarray] = []
     rejected: list[str] = []
 
-    for name, column in zip(names, zip(*body)):
+    # Rows are padded to `width` above, so both zips are strictly aligned.
+    for name, column in zip(names, zip(*body, strict=True), strict=True):
         cleaned = [np.nan if _is_blank(v) else v for v in column]
         try:
             kept_columns.append(np.asarray(cleaned, dtype=np.float64))
