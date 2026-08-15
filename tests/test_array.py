@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from numpyai_dashboard import array
-from numpyai_dashboard._ai import NumpyCodeGen
+from numpyai_dashboard._ai import prompt_single
 
 
 @pytest.fixture
@@ -29,13 +29,13 @@ def test_columns_reach_the_metadata(data):
 
 def test_columns_render_in_the_prompt(data):
     arr = array(data, columns=["units", "price", "discount"])
-    prompt = NumpyCodeGen.prompt_single("total revenue", arr.metadata)
+    prompt = prompt_single("total revenue", arr.metadata)
     assert "arr[:, 0] -> units" in prompt
     assert "arr[:, 2] -> discount" in prompt
 
 
 def test_no_column_block_without_names(data):
-    prompt = NumpyCodeGen.prompt_single("mean", array(data).metadata)
+    prompt = prompt_single("mean", array(data).metadata)
     assert "whose columns are, in order" not in prompt
 
 

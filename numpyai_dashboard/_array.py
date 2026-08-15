@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from rich.console import Console
 
-from ._ai import DEFAULT_MODEL, ChatResult, NumpyCodeGen
+from ._ai import DEFAULT_MODEL, ChatResult, NumpyCodeGen, prompt_single
 from ._engine import run_chat
 from ._utils import NumpyMetadataCollector
 from ._validator import NumpyValidator
@@ -185,7 +185,7 @@ class array:
         return run_chat(
             query,
             data_vars={"arr": self._data},
-            build_prompt=lambda prior: self._code_generator.prompt_single(
+            build_prompt=lambda prior: prompt_single(
                 query=query, metadata=self.metadata, prior_feedback=prior
             ),
             generator=self._code_generator,

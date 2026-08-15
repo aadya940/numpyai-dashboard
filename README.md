@@ -99,15 +99,16 @@ arr.chat("Replace missing values with the column mean.").value
 
 Pick a model with `model="openai:gpt-4o"`, or pass a `pydantic_ai.models.Model`.
 
-### Several arrays at once
+### Several inputs at once
 
 ```python
-sess = npi.NumpyAISession([np.array([[1, 2, 3]]), np.random.random((1, 3))])
-sess.chat("Impute the first array with the mean of the second.").value
+sess = npi.NumpyAISession([np.array([[1, 2, 3]]), npi.read_excel("sales.xlsx")])
+sess.chat("Compare the first array against the revenue column.").value
 
 npi.Diagnosis(sess).steps(task="Give me 5 steps to analyse this data.")
 ```
 
+Arrays and tables can be mixed; they are named `arr1`, `df2`, ... by position.
 `Diagnosis` suggests steps instead of computing an answer.
 
 ## Supported LLM providers

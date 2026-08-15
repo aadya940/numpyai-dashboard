@@ -1,33 +1,60 @@
-"""Multi-array session for chatting over several NumPy arrays at once."""
+"""Multi-object session for chatting over several arrays or tables at once."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
-from rich import box
-from rich.console import Console
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.table import Table
 
-from ._ai import DEFAULT_MODEL, ChatResult, CodeResponse, NumpyCodeGen
+from ._ai import DEFAULT_MODEL, ChatResult, NumpyCodeGen, prompt_multiple
 from ._array import array
-from ._exceptions import NumpyAIError
-from ._utils import NumpyMetadataCollector, clean_code, optional_globals
+from ._engine import run_chat
+from ._frame import frame
+from ._utils import NumpyMetadataCollector, frame_metadata
 from ._validator import NumpyValidator
 
-console = Console()
+
+def _unwrap(item: Any, index: int) -> tuple[str, Any]:
+    """Return ``(kind, data)`` for one session input.
+
+    Accepts a NumPy array or a pandas DataFrame, wrapped or bare.
+    """
+    if isinstance(item, array):
+        return "array", item.data
+    if isinstance(item, frame):
+        return "frame", item.data
+    if isinstance(item, np.ndarray):
+        return "array", item
+
+    # Checked last so pandas is only imported when something might need it.
+    try:
+        import pandas as pd
+    except ImportError:  # pragma: no cover - depends on install extras
+        pd = None
+    if pd is not None and isinstance(item, pd.DataFrame):
+        return "frame", item
+
+    raise TypeError(
+        "session data must be a numpy.ndarray, a pandas.DataFrame, or the "
+        f"numpyai_dashboard wrapper of either, got {type(item).__name__} "
+        f"at index {index}"
+    )
 
 
 class NumpyAISession:
-    """Chat with multiple NumPy arrays in a single session.
+    """Chat across several arrays or tables at once.
+
+    Each input is exposed to the model under a positional name: arrays as
+    ``arr1``, ``arr2``, ... and DataFrames as ``df1``, ``df2``, ... The number
+    always matches the position in ``data``, so a mixed session reads
+    ``arr1``, ``df2``, ``arr3`` and "the second one" is unambiguous.
 
     Parameters
     ----------
     data:
-        List of ``numpy.ndarray`` (or ``numpyai_dashboard.array``) objects. They will be
-        exposed to the LLM as ``arr1``, ``arr2``, ...
+        List of ``numpy.ndarray`` or ``pandas.DataFrame`` objects, or the
+        :class:`~numpyai_dashboard.array` and :class:`~numpyai_dashboard.frame`
+        wrappers of either.
     verbose:
         Show all intermediate LLM steps.
     model:
@@ -39,7 +66,7 @@ class NumpyAISession:
 
     def __init__(
         self,
-        data: list[np.ndarray | array],
+        data: list[Any],
         *,
         verbose: bool = False,
         model: Any = DEFAULT_MODEL,
@@ -50,195 +77,61 @@ class NumpyAISession:
         self._code_generator = NumpyCodeGen(model=model)
         self._validator = NumpyValidator()
 
-        self._initialize_arrays(data)
+        self._initialize(data)
         self.current_prompt: str | None = None
-        self._output_metadata: dict = {}
         self.verbose = verbose
         self.MAX_TRIES = max_tries
         self._model = model
 
-    def _initialize_arrays(self, data: list[np.ndarray | array]) -> None:
-        for i, arr in enumerate(data, start=1):
-            if isinstance(arr, array):
-                arr = arr.data
-            if not isinstance(arr, np.ndarray):
-                raise TypeError(
-                    f"session data must be numpy.ndarray or numpyai_dashboard.array, "
-                    f"got {type(arr).__name__} at index {i - 1}"
-                )
-            self._context[f"arr{i}"] = {
-                "array": arr,
-                "metadata": self._metadata_collector.metadata(arr),
-            }
+    def _initialize(self, data: list[Any]) -> None:
+        for i, item in enumerate(data, start=1):
+            kind, unwrapped = _unwrap(item, i - 1)
+            name = f"arr{i}" if kind == "array" else f"df{i}"
+            self._context[name] = {"kind": kind, "data": unwrapped}
+
+    @property
+    def context(self) -> dict[str, dict[str, Any]]:
+        """Each input with its current metadata, keyed by the name the model sees.
+
+        Metadata is recomputed on access so a session holding a frame that has
+        since been filtered describes the rows it holds now.
+        """
+        described = {}
+        for name, info in self._context.items():
+            metadata = (
+                frame_metadata(info["data"])
+                if info["kind"] == "frame"
+                else self._metadata_collector.metadata(info["data"])
+            )
+            described[name] = {**info, "metadata": metadata}
+        return described
 
     def chat(self, query: str) -> ChatResult:
-        """Answer a natural-language query across the session's arrays.
+        """Answer a natural-language query across the session's inputs.
 
         Returns a :class:`ChatResult` carrying the answer in ``.value`` along
         with the code that produced it, the judgment, and any errors. Failure is
         reported through ``.ok`` rather than by raising.
         """
-        if not isinstance(query, str):
-            raise TypeError("query must be a string")
+        self.current_prompt = query
+        context = self.context
 
-        console.print(
-            Panel(f"[bold cyan]Query:[/bold cyan] {query}", border_style="blue")
-        )
-
-        error_messages: list[str] = []
-        prior_feedback: str | None = None
-        last_judgment = None
-        for attempt in range(1, self.MAX_TRIES + 1):
-            is_last = attempt == self.MAX_TRIES
-            if self.verbose:
-                console.print(
-                    Panel(
-                        f"[bold green]Attempt {attempt}/{self.MAX_TRIES}...[/bold green]",
-                        border_style="yellow",
-                    )
-                )
-
-            try:
-                self.current_prompt = query
-                response = self._generate_response(query, prior_feedback)
-                result, explainer = self._execute(response.code)
-
-                if result is None:
-                    error_messages.append(
-                        f"Attempt {attempt}: execution returned None."
-                    )
-                    prior_feedback = "code execution produced no `output` variable"
-                    if self.verbose:
-                        console.print(
-                            Panel(
-                                "[bold red]✗[/bold red] Execution returned None.",
-                                border_style="red",
-                            )
-                        )
-                    continue
-
-                judgment = self._code_generator.judge(
-                    query=query, code=response.code, metadata=str(explainer or "")
-                )
-                last_judgment = judgment
-                if self.verbose or is_last:
-                    self._print_judgment(judgment)
-
-                if judgment.interprets_query_correctly:
-                    if self.verbose or is_last:
-                        preview = (
-                            result
-                            if not isinstance(result, np.ndarray)
-                            else type(result)
-                        )
-                        console.print(
-                            Panel(
-                                f"[bold green]Output\n {preview}", border_style="yellow"
-                            )
-                        )
-                    return ChatResult(
-                        value=result,
-                        code=response.code,
-                        description=str(explainer or ""),
-                        judgment=judgment,
-                        attempts=attempt,
-                        errors=error_messages,
-                    )
-
-                prior_feedback = f"judgment rejected: {judgment.reason}"
-                error_messages.append(f"Attempt {attempt}: {prior_feedback}")
-
-            except Exception as e:
-                error_messages.append(f"Attempt {attempt}: {e}")
-                prior_feedback = f"exception in previous attempt: {e}"
-                if self.verbose or is_last:
-                    console.print(
-                        Panel(
-                            f"[bold red]✗[/bold red] Attempt {attempt} failed: {e}",
-                            border_style="red",
-                        )
-                    )
-
-        # Failure is carried in the return value; the table is still printed
-        # because that is how a notebook user sees what went wrong.
-        self._print_error_table(error_messages)
-        return ChatResult(
-            judgment=last_judgment, attempts=self.MAX_TRIES, errors=error_messages
-        )
-
-    def _generate_response(
-        self, query: str, prior_feedback: str | None = None
-    ) -> CodeResponse:
-        prompt = self._code_generator.prompt_multiple(
-            query=query, context=self._context, prior_feedback=prior_feedback
-        )
-        response = self._code_generator.generate_code(prompt)
-        response = CodeResponse(
-            code=clean_code(response.code),
-            explanation=response.explanation,
-        )
-
-        if self.verbose:
-            console.print(
-                Panel(
-                    Syntax(response.code, "python", theme="monokai", line_numbers=True),
-                    title="[bold]Generated Code[/bold]",
-                    border_style="blue",
-                )
-            )
-
-        if not self._validator.validate_code(response.code):
-            raise NumpyAIError("Generated code failed syntax validation")
-        return response
-
-    @staticmethod
-    def _print_judgment(j) -> None:
-        mark = "[green]✓[/green]" if j.interprets_query_correctly else "[red]✗[/red]"
-        body = j.reason or "correctly interprets the query"
-        console.print(Panel(f"{mark} {body}", title="Judgment", border_style="magenta"))
-
-    def _execute(self, code: str, code_out: Any = None) -> tuple[Any, Any]:
-        """Execute generated code in a controlled namespace.
-
-        Returns ``(result, explainer)``. On error, returns ``(None, None)``.
-        """
-        local_vars: dict[str, Any] = {"np": np}
-        for name, info in self._context.items():
-            local_vars[name] = info["array"]
-        if code_out is not None:
-            local_vars["code_out"] = code_out
-
-        exec_globals: dict[str, Any] = {
-            "__builtins__": __builtins__,
-            "np": np,
-            **optional_globals(),
+        data_vars: dict[str, Any] = {
+            name: info["data"] for name, info in context.items()
         }
+        if any(info["kind"] == "frame" for info in context.values()):
+            import pandas as pd
 
-        try:
-            exec(code, exec_globals, local_vars)
-            result = local_vars.get("output")
-            explainer = local_vars.get("metadata")
+            data_vars["pd"] = pd
 
-            if result is not None and self.verbose:
-                lines = str(result).split("\n")
-                preview = "\n".join(lines[:10])
-                if len(lines) > 10:
-                    preview += "\n... (output truncated)"
-                console.print(preview)
-                if explainer is not None:
-                    console.print(str(explainer))
-
-            return result, explainer
-        except Exception as e:
-            if self.verbose:
-                console.print(f"[bold red]✗[/bold red] Error executing code: {e}")
-            return None, None
-
-    @staticmethod
-    def _print_error_table(error_messages: list[str]) -> None:
-        table = Table(title="Error Details", box=box.DOUBLE_EDGE)
-        table.add_column("Attempt", style="cyan")
-        table.add_column("Error", style="red")
-        for i, msg in enumerate(error_messages, 1):
-            table.add_row(str(i), msg)
-        console.print(table)
+        return run_chat(
+            query,
+            data_vars=data_vars,
+            build_prompt=lambda prior: prompt_multiple(
+                query=query, context=context, prior_feedback=prior
+            ),
+            generator=self._code_generator,
+            validator=self._validator,
+            max_tries=self.MAX_TRIES,
+            verbose=self.verbose,
+        )

@@ -214,31 +214,53 @@ class NumpyCodeGen:
         )
         return _run_coro(self._judge_agent.run(prompt)).output
 
-    @staticmethod
-    def prompt_single(
-        query: str,
-        metadata: dict,
-        prior_feedback: str | None = None,
-    ) -> str:
-        feedback_block = (
-            f"\nPREVIOUS ATTEMPT WAS REJECTED. Reason: {prior_feedback}\n"
-            "Correct that specific issue this time.\n"
-            if prior_feedback
-            else ""
+
+def _column_block(summary: dict) -> str:
+    """Render a DataFrame's column summary for the prompt."""
+    lines = []
+    for name, info in summary.items():
+        kind = info.get("kind", "")
+        bits = []
+        if kind == "numeric" and "min" in info:
+            bits.append(f"{info['min']:g} to {info['max']:g}")
+        elif kind == "datetime" and "min" in info:
+            bits.append(f"{info['min']} to {info['max']}")
+        elif kind == "boolean":
+            bits.append(f"{info.get('true_count', '?')} true")
+        elif kind == "text":
+            if "categories" in info:
+                bits.append("one of: " + ", ".join(repr(c) for c in info["categories"]))
+            else:
+                bits.append(f"{info.get('n_unique', '?')} distinct values")
+        if info.get("nulls"):
+            bits.append(f"{info['nulls']} null")
+        detail = f"  ({', '.join(bits)})" if bits else ""
+        lines.append(f"    df[{name!r}]  {info.get('dtype', '')}{detail}")
+    return "\n".join(lines)
+
+
+def prompt_single(
+    query: str,
+    metadata: dict,
+    prior_feedback: str | None = None,
+) -> str:
+    feedback_block = (
+        f"\nPREVIOUS ATTEMPT WAS REJECTED. Reason: {prior_feedback}\n"
+        "Correct that specific issue this time.\n"
+        if prior_feedback
+        else ""
+    )
+    columns = metadata.get("columns")
+    column_block = ""
+    if columns:
+        listing = "\n".join(f"    arr[:, {i}] -> {c}" for i, c in enumerate(columns))
+        column_block = (
+            "\n`arr` is a 2-D table whose columns are, in order:\n"
+            f"{listing}\n"
+            "Refer to columns by these positional indices. There are no named\n"
+            "fields on `arr` - `arr['score']` will NOT work, use `arr[:, i]`.\n"
         )
-        columns = metadata.get("columns")
-        column_block = ""
-        if columns:
-            listing = "\n".join(
-                f"    arr[:, {i}] -> {c}" for i, c in enumerate(columns)
-            )
-            column_block = (
-                "\n`arr` is a 2-D table whose columns are, in order:\n"
-                f"{listing}\n"
-                "Refer to columns by these positional indices. There are no named\n"
-                "fields on `arr` - `arr['score']` will NOT work, use `arr[:, i]`.\n"
-            )
-        return f"""Generate NumPy code to perform the following operation:
+    return f"""Generate NumPy code to perform the following operation:
 
 {query}
 {feedback_block}
@@ -268,91 +290,65 @@ CORRECT EXAMPLES:
     metadata = "scalar: mean of arr"
 """
 
-    @staticmethod
-    def prompt_multiple(
-        query: str,
-        context: dict,
-        prior_feedback: str | None = None,
-    ) -> str:
-        def format_metadata(md: dict) -> str:
-            parts = [
-                f"Shape: {md['shape']}, Dims: {md['dims']}, Type: {md['element_type']}",
-                f"Size: {md['size']} elements, Memory: {md['byte_size']} bytes",
+
+def prompt_multiple(
+    query: str,
+    context: dict,
+    prior_feedback: str | None = None,
+) -> str:
+    """Build the code-generation prompt for a multi-input session."""
+    blocks = []
+    for name, info in context.items():
+        md = info["metadata"]
+        if info.get("kind") == "frame":
+            blocks.append(
+                f"`{name}` is a pandas DataFrame with {md.get('rows', '?')} rows:\n"
+                + _column_block(md.get("column_summary", {})).replace("df[", f"{name}[")
+            )
+        else:
+            bits = [
+                f"shape {md['shape']}, dtype {md['element_type']}",
             ]
             if md.get("has_nan"):
-                parts.append("Contains NaN values")
-            if md.get("has_inf"):
-                parts.append("Contains infinite values")
+                bits.append("contains NaN")
             if "min" in md and "max" in md:
-                parts.append(f"Range: [{md['min']}, {md['max']}]")
-            if "zeros_count" in md and "non_zeros_count" in md:
-                parts.append(
-                    f"Zero elements: {md['zeros_count']}, "
-                    f"Non-zero elements: {md['non_zeros_count']}"
-                )
-            return "; ".join(parts)
+                bits.append(f"range {md['min']:g} to {md['max']:g}")
+            if md.get("columns"):
+                bits.append("columns " + ", ".join(repr(c) for c in md["columns"]))
+            blocks.append(f"`{name}` is a NumPy array: {'; '.join(bits)}")
 
-        array_descriptions = "\n".join(
-            f"- **{name}**: {format_metadata(info['metadata'])}"
-            for name, info in context.items()
-        )
-
-        names = ", ".join(context.keys())
-        feedback_block = (
-            f"\nPREVIOUS ATTEMPT WAS REJECTED. Reason: {prior_feedback}\n"
-            "Correct that specific issue this time.\n"
-            if prior_feedback
-            else ""
-        )
-        return f"""Generate NumPy code to perform the following operation:
+    names = ", ".join(context.keys())
+    has_frame = any(i.get("kind") == "frame" for i in context.values())
+    feedback_block = (
+        f"\nPREVIOUS ATTEMPT WAS REJECTED. Reason: {prior_feedback}\n"
+        "Correct that specific issue this time.\n"
+        if prior_feedback
+        else ""
+    )
+    return f"""Generate Python code to perform the following operation:
 
 {query}
 {feedback_block}
 
-CRITICAL INSTRUCTIONS:
-1. These arrays are ALREADY defined: {names}. DO NOT redefine them.
-2. DO NOT IMPORT any libraries except numpy (already imported as `np`).
-3. Prefer NumPy. `scipy`, `sklearn` and `matplotlib.pyplot` (as `plt`) are available
-   only as a last resort.
-4. There MUST be exactly one variable named `output` containing the result of the query.
-5. There MUST be exactly one variable named `metadata` - a short string describing `output`.
-6. Ensure data is properly cleaned before executing any computation.
+{chr(10).join(blocks)}
 
-Array information:
-{array_descriptions}
+CRITICAL INSTRUCTIONS:
+1. These are ALREADY defined: {names}. DO NOT redefine or reload them, and do
+   not invent names or columns that are not listed above.
+2. DO NOT IMPORT anything. `np` (numpy){", `pd` (pandas)" if has_frame else ""} and
+   where installed `scipy`, `sklearn` and `plt` are already available.
+3. DO NOT mutate the inputs. Derive new values into `output` instead.
+4. There MUST be exactly one variable named `output` containing the result.
+5. There MUST be exactly one variable named `metadata` - a short string describing
+   `output`.
 
 CORRECT EXAMPLES:
-    output = np.mean(arr1) - np.mean(arr2)
+    output = np.nanmean(arr1) - np.nanmean(arr2)
     metadata = "scalar: difference of the two means"
 
-    arr2_imputed = np.where(np.isnan(arr2), np.mean(arr1), arr2)
-    output = arr2_imputed
+    output = np.where(np.isnan(arr2), np.nanmean(arr1), arr2)
     metadata = "arr2 with NaNs replaced by mean of arr1"
 """
-
-
-def _column_block(summary: dict) -> str:
-    """Render a DataFrame's column summary for the prompt."""
-    lines = []
-    for name, info in summary.items():
-        kind = info.get("kind", "")
-        bits = []
-        if kind == "numeric" and "min" in info:
-            bits.append(f"{info['min']:g} to {info['max']:g}")
-        elif kind == "datetime" and "min" in info:
-            bits.append(f"{info['min']} to {info['max']}")
-        elif kind == "boolean":
-            bits.append(f"{info.get('true_count', '?')} true")
-        elif kind == "text":
-            if "categories" in info:
-                bits.append("one of: " + ", ".join(repr(c) for c in info["categories"]))
-            else:
-                bits.append(f"{info.get('n_unique', '?')} distinct values")
-        if info.get("nulls"):
-            bits.append(f"{info['nulls']} null")
-        detail = f"  ({', '.join(bits)})" if bits else ""
-        lines.append(f"    df[{name!r}]  {info.get('dtype', '')}{detail}")
-    return "\n".join(lines)
 
 
 def prompt_frame(
