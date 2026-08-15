@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from functools import cached_property
 from typing import Any, Awaitable, TypeVar
 
 from pydantic import BaseModel, Field
@@ -115,18 +116,27 @@ class NumpyCodeGen:
         system_prompt: str | None = None,
     ) -> None:
         self.model = model
-        prompt = system_prompt or SYSTEM_PROMPT
-        self._code_agent: Agent[None, CodeResponse] = Agent(
-            model=model,
+        self._system_prompt = system_prompt or SYSTEM_PROMPT
+
+    # Agents are built on first use rather than in __init__: constructing one
+    # resolves the provider and requires credentials, and plenty of usage
+    # (loading a file, inspecting metadata) never reaches the LLM at all.
+    @cached_property
+    def _code_agent(self) -> Agent[None, CodeResponse]:
+        return Agent(
+            model=self.model,
             output_type=CodeResponse,
-            system_prompt=prompt,
+            system_prompt=self._system_prompt,
         )
-        self._text_agent: Agent[None, str] = Agent(
-            model=model,
-            system_prompt=prompt,
-        )
-        self._judge_agent: Agent[None, Judgment] = Agent(
-            model=model,
+
+    @cached_property
+    def _text_agent(self) -> Agent[None, str]:
+        return Agent(model=self.model, system_prompt=self._system_prompt)
+
+    @cached_property
+    def _judge_agent(self) -> Agent[None, Judgment]:
+        return Agent(
+            model=self.model,
             output_type=Judgment,
             system_prompt=JUDGE_SYSTEM_PROMPT,
         )
@@ -167,6 +177,16 @@ class NumpyCodeGen:
             if prior_feedback
             else ""
         )
+        columns = metadata.get("columns")
+        column_block = ""
+        if columns:
+            listing = "\n".join(f"    arr[:, {i}] -> {c}" for i, c in enumerate(columns))
+            column_block = (
+                "\n`arr` is a 2-D table whose columns are, in order:\n"
+                f"{listing}\n"
+                "Refer to columns by these positional indices. There are no named\n"
+                "fields on `arr` - `arr['score']` will NOT work, use `arr[:, i]`.\n"
+            )
         return f"""Generate NumPy code to perform the following operation:
 
 {query}
@@ -184,7 +204,7 @@ CRITICAL INSTRUCTIONS:
 
 The array has these properties:
 {metadata}
-
+{column_block}
 CORRECT EXAMPLES:
     # Replace NaN values with zero
     output = np.where(np.isnan(arr), 0, arr)

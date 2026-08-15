@@ -35,13 +35,16 @@ dependencies = [
 google = ["pydantic-ai-slim[google]>=0.0.13"]
 openai = ["pydantic-ai-slim[openai]>=0.0.13"]
 anthropic = ["pydantic-ai-slim[anthropic]>=0.0.13"]
+excel = ["python-calamine>=0.8"]
 extras = ["matplotlib>=3.8", "scikit-learn>=1.4"]
 all = [
     "pydantic-ai[all]>=0.0.13",
     "matplotlib>=3.8",
     "scikit-learn>=1.4",
+    "python-calamine>=0.8",
 ]
 dev = [
+    "python-calamine>=0.8",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "black>=24.0",

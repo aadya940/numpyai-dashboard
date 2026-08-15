@@ -16,6 +16,7 @@ without touching the library code.
 - Ask questions in English; NumpyAI generates and executes NumPy code for you.
 - `numpyai.Diagnosis` suggests analysis steps for your data.
 - `numpyai.NumpyAISession` chats over multiple arrays at once.
+- `numpyai.read_excel` loads `.xlsx`/`.xls`/`.xlsb`/`.ods` straight into an array.
 - Generated code is syntax-checked and independently validated before returning.
 - Automatic retries with error context.
 - Verbose mode (`verbose=True`) prints every intermediate step.
@@ -33,6 +34,7 @@ Or install only the providers you need:
 pip install "numpyai[google]"    # Google Gemini
 pip install "numpyai[openai]"    # OpenAI
 pip install "numpyai[anthropic]" # Anthropic Claude
+pip install "numpyai[excel]"     # .xlsx/.xls/.xlsb/.ods loading
 ```
 
 ### From source
@@ -83,6 +85,35 @@ npi.array(data, model="google:gemini-2.5-pro")
 ```
 
 You can also pass a pre-configured `pydantic_ai.models.Model` instance for full control.
+
+### Loading a spreadsheet
+
+Requires `numpyai[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods` via
+[python-calamine](https://github.com/dimastbk/python-calamine).
+
+```python
+import numpyai as npi
+
+arr = npi.read_excel("sales.xlsx")          # or sheet="Q3", header=False
+print(arr.columns)                          # ['units', 'unit_price', 'discount']
+print(arr.chat("Total revenue after discount."))
+```
+
+Column names are passed to the model, so you can refer to them in plain English
+rather than by index.
+
+Because a NumpyAI array is a homogeneous `float64` matrix, only columns that
+convert cleanly are kept:
+
+| In the sheet | Becomes |
+| --- | --- |
+| numbers, numeric text | `float64` |
+| blank cells | `NaN` |
+| `TRUE` / `FALSE` | `1.0` / `0.0` |
+| text, dates | **dropped**, with a `UserWarning` naming each one |
+
+Nothing is dropped silently — if a column you needed went missing, the warning
+tells you which and why.
 
 ### Multiple arrays
 

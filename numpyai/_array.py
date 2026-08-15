@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from operator import add, floordiv, matmul, mod, mul, pow, sub, truediv
 from typing import Any
 
@@ -35,6 +36,10 @@ class array:
         ``"google:gemini-2.5-flash"``).
     max_tries:
         Number of code-generation attempts before giving up (default: 3).
+    columns:
+        Optional names for the columns of a 2-D array. Populated automatically by
+        :func:`numpyai.read_excel`; passed to the LLM so it can refer to columns
+        by name instead of by index.
     """
 
     def __init__(
@@ -44,10 +49,21 @@ class array:
         verbose: bool = False,
         model: Any = DEFAULT_MODEL,
         max_tries: int = 3,
+        columns: Sequence[str] | None = None,
     ) -> None:
         if not isinstance(data, np.ndarray):
             raise TypeError(f"data must be a numpy.ndarray, got {type(data).__name__}")
 
+        if columns is not None:
+            columns = list(columns)
+            if data.ndim != 2:
+                raise ValueError(f"columns requires a 2-D array, got {data.ndim}-D")
+            if len(columns) != data.shape[1]:
+                raise ValueError(
+                    f"got {len(columns)} column names for {data.shape[1]} columns"
+                )
+
+        self.columns = columns
         self._data = data
         self._metadata_collector = NumpyMetadataCollector()
         self._validator = NumpyValidator()
@@ -57,7 +73,7 @@ class array:
 
         self._output_metadata: dict = {}
         self.current_prompt: str | None = None
-        self.metadata = self._metadata_collector.metadata(self._data)
+        self.metadata = self._metadata_collector.metadata(self._data, self.columns)
         self._model = model
 
     # ------------------------------------------------------------------
@@ -112,8 +128,13 @@ class array:
 
     @data.setter
     def data(self, new_array: np.ndarray) -> None:
+        # Column names only survive if the new array is still the same width.
+        if self.columns is not None and (
+            new_array.ndim != 2 or new_array.shape[1] != len(self.columns)
+        ):
+            self.columns = None
         self._data = new_array
-        self.metadata = self._metadata_collector.metadata(self._data)
+        self.metadata = self._metadata_collector.metadata(self._data, self.columns)
 
     # ------------------------------------------------------------------
     # chat

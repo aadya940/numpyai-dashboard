@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 import numpy as np
+
+#: Bounds on the array preview embedded in the LLM prompt.
+_PREVIEW_ROWS = 10
+_PREVIEW_COLS = 20
 
 
 class NumpyMetadataCollector:
     """Collect metadata from NumPy arrays and NumPy-operation outputs."""
 
-    def metadata(self, data: np.ndarray) -> dict:
-        """Collect metadata about the given NumPy array."""
+    def metadata(self, data: np.ndarray, columns: Sequence[str] | None = None) -> dict:
+        """Collect metadata about the given NumPy array.
+
+        ``columns`` optionally names the columns of a 2-D array (populated by the
+        file loaders) so the LLM knows what each column represents.
+        """
         md: dict = {
             "is_numpy": isinstance(data, np.ndarray),
             "dims": data.ndim,
@@ -21,11 +30,18 @@ class NumpyMetadataCollector:
             "byte_size": data.nbytes,
         }
 
+        if columns is not None:
+            md["columns"] = list(columns)
+
         if np.issubdtype(data.dtype, np.number):
             try:
-                md["has_nan"] = bool(np.isnan(data).any())
+                # Compute the NaN mask once - it is needed both for `has_nan` and
+                # for the all-NaN guard below, and a second pass over a large
+                # array is expensive.
+                nan_mask = np.isnan(data)
+                md["has_nan"] = bool(nan_mask.any())
                 md["has_inf"] = bool(np.isinf(data).any())
-                if data.size > 0 and not np.all(np.isnan(data)):
+                if data.size > 0 and not nan_mask.all():
                     md["min"] = float(np.nanmin(data))
                     md["max"] = float(np.nanmax(data))
             except (TypeError, ValueError):
@@ -40,8 +56,14 @@ class NumpyMetadataCollector:
 
         if data.ndim >= 1:
             try:
-                preview_len = max(len(data) // 2, 15)
-                md["array-preview"] = data[:preview_len] if len(data) > 15 else data
+                # The preview is interpolated straight into the LLM prompt, so it
+                # must stay small regardless of how large the array is.
+                preview = data[: min(len(data), _PREVIEW_ROWS)]
+                if preview.ndim > 1 and preview.shape[1] > _PREVIEW_COLS:
+                    preview = preview[:, :_PREVIEW_COLS]
+                md["array-preview"] = preview
+                if preview.shape != data.shape:
+                    md["array-preview-truncated"] = True
             except TypeError:
                 pass
 
@@ -93,9 +115,11 @@ class NumpyMetadataCollector:
 
             if output.size > 0:
                 sample_size = min(5, output.size)
-                metadata["first_elements"] = output.flatten()[:sample_size].tolist()
+                # `.flat` is a view-based iterator; `.flatten()` would copy the
+                # whole array just to read a handful of elements.
+                metadata["first_elements"] = output.flat[:sample_size].tolist()
                 if output.size > sample_size * 2:
-                    metadata["last_elements"] = output.flatten()[-sample_size:].tolist()
+                    metadata["last_elements"] = output.flat[-sample_size:].tolist()
 
             if output.size > 1_000_000:
                 metadata["large_array"] = True
