@@ -97,49 +97,6 @@ JUDGE_SYSTEM_PROMPT = (
 )
 
 
-def _table_block(columns: list[str], summary: dict) -> str:
-    """Describe a structured array to the model, field by field."""
-    lines = []
-    for name in columns:
-        info = summary.get(name, {})
-        kind = info.get("kind", "")
-        detail = ""
-        if kind == "numeric":
-            bits = []
-            if "min" in info:
-                bits.append(f"range {info['min']:g} to {info['max']:g}")
-            if info.get("has_nan"):
-                bits.append("contains NaN")
-            detail = ", ".join(bits)
-        elif kind == "datetime":
-            if "min" in info:
-                detail = f"range {info['min']} to {info['max']}"
-            if info.get("has_nat"):
-                detail += ", contains NaT" if detail else "contains NaT"
-        elif kind == "text":
-            if "categories" in info:
-                detail = "one of: " + ", ".join(repr(c) for c in info["categories"])
-            else:
-                detail = f"{info.get('n_unique', '?')} distinct values"
-        lines.append(
-            f"    arr[{name!r}]  {info.get('dtype', '')}"
-            + (f"  ({detail})" if detail else "")
-        )
-
-    return (
-        "\n`arr` is a STRUCTURED NumPy array (a table). Its columns are:\n"
-        + "\n".join(lines)
-        + "\n\nAccess a column by name: `arr['score']` returns a 1-D array.\n"
-        "`arr[:, 0]` does NOT work on a structured array - never use positional\n"
-        "column indexing here.\n"
-        "Filter rows with boolean masks, e.g.\n"
-        "    output = np.nanmean(arr['score'][arr['region'] == 'EMEA'])\n"
-        "Numeric columns use NaN for blank cells, so prefer np.nanmean / np.nansum\n"
-        "/ np.nanstd over their plain counterparts. Date columns use NaT; filter it\n"
-        "out with `~np.isnat(arr['date'])`.\n"
-    )
-
-
 class NumpyCodeGen:
     """Generates NumPy code from natural-language queries using Pydantic AI.
 
@@ -224,9 +181,7 @@ class NumpyCodeGen:
         )
         columns = metadata.get("columns")
         column_block = ""
-        if columns and metadata.get("is_table"):
-            column_block = _table_block(columns, metadata.get("column_summary", {}))
-        elif columns:
+        if columns:
             listing = "\n".join(
                 f"    arr[:, {i}] -> {c}" for i, c in enumerate(columns)
             )

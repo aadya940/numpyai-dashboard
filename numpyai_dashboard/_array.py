@@ -37,10 +37,9 @@ class array:
     max_tries:
         Number of code-generation attempts before giving up (default: 3).
     columns:
-        Optional names for the columns of a 2-D array. Populated automatically by
-        :func:`numpyai_dashboard.read_excel`; passed to the LLM so it can refer to
-        columns by name instead of by index. For a structured array the names come
-        from the dtype itself and this argument is unnecessary.
+        Optional names for the columns of a 2-D array, passed to the LLM so it can
+        refer to columns by name instead of by index. Handy when bridging from a
+        DataFrame: ``array(df[cols].to_numpy(), columns=cols)``.
     """
 
     def __init__(
@@ -57,11 +56,6 @@ class array:
 
         if columns is not None:
             columns = list(columns)
-            if data.dtype.names is not None:
-                raise ValueError(
-                    "columns cannot be given for a structured array; its dtype "
-                    "already names the fields"
-                )
             if data.ndim != 2:
                 raise ValueError(f"columns requires a 2-D array, got {data.ndim}-D")
             if len(columns) != data.shape[1]:
@@ -84,15 +78,8 @@ class array:
 
     @property
     def columns(self) -> list[str] | None:
-        """Column names, from the structured dtype if there is one."""
-        if self._data.dtype.names is not None:
-            return list(self._data.dtype.names)
+        """Names for the columns of a 2-D array, if any were given."""
         return self._columns
-
-    @property
-    def is_table(self) -> bool:
-        """True when the underlying array is structured (mixed column types)."""
-        return self._data.dtype.names is not None
 
     # ------------------------------------------------------------------
     # numpy interop
@@ -159,13 +146,6 @@ class array:
         self._data[index] = value
 
     def __repr__(self) -> str:
-        if self.is_table:
-            fields = ", ".join(
-                f"{n}:{self._data.dtype[n].str}" for n in self._data.dtype.names
-            )
-            return (
-                f"numpyai_dashboard.array(rows={len(self._data)}, columns=[{fields}])"
-            )
         return (
             f"numpyai_dashboard.array(shape={self._data.shape}, "
             f"dtype={self._data.dtype})"
@@ -188,12 +168,9 @@ class array:
 
     @data.setter
     def data(self, new_array: np.ndarray) -> None:
-        # Explicit column names only survive if the new array is the same width.
-        # A structured array carries its own names, so nothing to drop there.
+        # Column names only survive if the new array is still the same width.
         if self._columns is not None and (
-            new_array.dtype.names is not None
-            or new_array.ndim != 2
-            or new_array.shape[1] != len(self._columns)
+            new_array.ndim != 2 or new_array.shape[1] != len(self._columns)
         ):
             self._columns = None
         self._data = new_array
