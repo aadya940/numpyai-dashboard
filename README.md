@@ -63,133 +63,68 @@ export GEMINI_API_KEY=...
 
 ## Usage
 
-### Loading a spreadsheet
+### Loading
 
-Requires `numpyai-dashboard[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods`.
+`read_excel` handles `.xlsx`, `.xls`, `.xlsb` and `.ods`; `read_csv` handles
+delimited text and forwards any extra keyword to `pandas.read_csv`.
 
 ```python
+import numpy as np
 import numpyai_dashboard as npi
 
-df = npi.read_excel("sales.xlsx")     # or sheet="Q3", header=False, n_rows=1000
-print(df.columns.tolist())            # ['region', 'order_date', 'units', 'price']
-```
-
-You get a `frame`: a DataFrame that can answer questions. Attribute and item
-access pass straight through, so `df.head()`, `df["units"]` and
-`df["revenue"] = ...` work as usual. `df.data` is the real DataFrame, which is
-what a Panel `Tabulator` wants.
-
-Reading goes through [fastexcel](https://github.com/ToucanToco/fastexcel) and the
-Rust [calamine](https://github.com/tafia/calamine) parser, which measures about 3x
-faster and half the memory of reading calamine from Python.
-
-### Loading delimited text
-
-Requires `numpyai-dashboard[csv]`. `read_csv` mirrors `read_excel`'s contract, and
-forwards any other keyword to `pandas.read_csv`.
-
-```python
-df = npi.read_csv("sales.csv")            # or header=False, n_rows=1000
-df = npi.read_csv("sales.tsv")            # tab inferred from the extension
+df = npi.read_excel("sales.xlsx")         # or sheet="Q3", header=False, n_rows=1000
 df = npi.read_csv("sales.csv.gz", usecols=["region", "units"])
 ```
 
-Delimited text carries no types, so pass `parse_dates=["order_date"]` through to
-pandas for real `datetime64` columns.
+Both return a `frame`: a DataFrame that can answer questions. Attribute and item
+access pass through, so `df.head()` and `df["revenue"] = ...` work as usual, and
+`df.data` is the real DataFrame that a Panel `Tabulator` wants.
 
-### Asking about a table
+CSV carries no types, so pass `parse_dates=["order_date"]` for real `datetime64`.
 
-Every column is visible to the model, with its dtype, its range, and the distinct
-values of the categorical ones. So questions can name columns and span types:
+### Asking questions
+
+Every column is visible to the model, with its dtype, range, and the distinct
+values of the categorical ones, so questions can name columns and span types.
+Both pandas and NumPy are in scope and the model picks whichever fits.
 
 ```python
 df["revenue"] = df["units"] * df["unit_price"] * (1 - df["discount"].fillna(0))
 
-df.chat("Total revenue by region since March.").value
-# region
-# AMER     58373.70
-# APAC     75876.63
-# EMEA     70421.71
-# LATAM    65757.28
-```
-
-Both pandas and NumPy are in scope, so the model picks whichever suits the
-question:
-
-```python
-output = df.groupby("region")["revenue"].sum()                       # pandas
-output = np.nansum(rev[df["region"].to_numpy() == "EMEA"])           # numpy
-```
-
-For a NumPy array rather than a table, `npi.array(...)` works the same way and
-shows the model one homogeneous array instead.
-
-### What a question returns
-
-`chat` returns a `ChatResult`, not a bare value, so the code and the verdict are
-available to a caller rather than only printed.
-
-```python
-result = arr.chat("Total revenue after discount.")
+result = df.chat("Total revenue by region since March.")
 
 result.value        # the answer
-result.code         # the NumPy that produced it
+result.code         # the code that produced it
 result.description  # the model's own summary
 result.judgment     # verdict, and the reason if rejected
 result.attempts     # how many tries it took
 result.ok           # False if every attempt was rejected
 ```
 
-Failure never raises. `result.ok` is False, `result.value` is None, and
-`result.errors` holds one entry per attempt.
+Failure never raises: `ok` is False, `value` is None, and `errors` holds one
+entry per attempt.
 
-### Single array
+`npi.array(...)` is the same interface over a NumPy array, showing the model one
+homogeneous array rather than a table:
 
 ```python
-import numpy as np
-import numpyai_dashboard as npi
-
-data = np.array([[1, 2, 3, 4, 5, np.nan], [np.nan, 3, 5, 3.1415, 2, 2]])
-arr = npi.array(data)  # defaults to google:gemini-2.5-flash
-
-print(arr.chat("Compute the height and width of the image using NumPy.").value)
-# Expected output: (2, 6)
+arr = npi.array(np.array([[1, 2, 3], [4, 5, np.nan]]))
+arr.chat("Replace missing values with the column mean.").value
 ```
 
-### Choosing a model
+Pass any Pydantic AI spec via `model=`, such as `model="openai:gpt-4o"`, or a
+pre-configured `pydantic_ai.models.Model`.
 
-Pass any Pydantic AI model spec via `model=`:
+### Several arrays at once
 
-```python
-npi.array(data, model="anthropic:claude-sonnet-4-5")
-npi.array(data, model="openai:gpt-4o")
-npi.array(data, model="google:gemini-2.5-pro")
-```
-
-A pre-configured `pydantic_ai.models.Model` instance also works.
-
-### Multiple arrays
+`NumpyAISession` exposes each array to the model as `arr1`, `arr2`, ...
+`Diagnosis` suggests analysis steps rather than computing an answer.
 
 ```python
-import numpy as np
-import numpyai_dashboard as npi
+sess = npi.NumpyAISession([np.array([[1, 2, 3]]), np.random.random((1, 3))])
+sess.chat("Impute the first array with the mean of the second.").value
 
-arr1 = np.array([[1, 2, 3], [4, 5, 6]])
-arr2 = np.random.random((2, 3))
-
-sess = npi.NumpyAISession([arr1, arr2])
-result = sess.chat("Impute the first array with the mean of the second array.")
-imputed = result.value
-```
-
-### Diagnosis
-
-```python
-sess = npi.NumpyAISession([arr1, arr2])
-diag = npi.Diagnosis(sess)
-steps = diag.steps(
-    task="Give me exactly 7 pithy steps to select an ML model for this data."
-)
+npi.Diagnosis(sess).steps(task="Give me 5 steps to analyse this data.")
 ```
 
 ## Supported LLM providers
