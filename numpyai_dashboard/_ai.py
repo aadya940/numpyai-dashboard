@@ -8,7 +8,7 @@ from collections.abc import Awaitable
 from functools import cached_property
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 
 T = TypeVar("T")
@@ -88,6 +88,44 @@ class Judgment(BaseModel):
         ),
         default="",
     )
+
+
+class ChatResult(BaseModel):
+    """Everything one natural-language query produced.
+
+    ``chat`` returns only ``value``, which is all a notebook needs because the
+    rest is printed to the console as it happens. A user interface cannot read a
+    console, so ``ask`` returns this instead.
+
+    ``value`` is whatever the generated code assigned to ``output``: a scalar, an
+    array, a DataFrame, a figure. It is produced by executing that code locally,
+    not by the model, so pydantic-ai cannot validate it and pydantic needs
+    ``arbitrary_types_allowed`` to hold it. That also means ``model_dump_json``
+    will not serialise ``value`` for types it does not know.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    value: Any = Field(
+        default=None,
+        description="The `output` variable, or None if every attempt failed.",
+    )
+    code: str = Field(default="", description="The code that produced `value`.")
+    description: str = Field(
+        default="", description="The model's own one-line summary of `output`."
+    )
+    judgment: Judgment | None = Field(
+        default=None, description="Verdict on the final attempt, if one was reached."
+    )
+    attempts: int = Field(default=0, description="Attempts made, successful or not.")
+    errors: list[str] = Field(
+        default_factory=list, description="One entry per failed attempt."
+    )
+
+    @property
+    def ok(self) -> bool:
+        """True when an attempt produced a value the judge accepted."""
+        return self.judgment is not None and self.judgment.interprets_query_correctly
 
 
 JUDGE_SYSTEM_PROMPT = (

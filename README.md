@@ -100,6 +100,24 @@ df = npi.read_csv("sales.csv.gz", usecols=["region", "units"])
 Delimited text carries no types, so pass `parse_dates=["order_date"]` through to
 pandas for real `datetime64` columns.
 
+### Getting the code, not just the answer
+
+`chat` returns the answer and prints everything else. `ask` returns it all as a
+`ChatResult`, which is what a UI needs since it cannot read a console.
+
+```python
+result = arr.ask("Total revenue after discount.")
+
+result.value        # the answer
+result.code         # the NumPy that produced it
+result.description  # the model's own summary
+result.judgment     # verdict, and the reason if rejected
+result.attempts     # how many tries it took
+result.ok           # False if every attempt was rejected
+```
+
+`ask` never warns or raises on failure; `result.ok` carries that.
+
 ### Single array
 
 ```python

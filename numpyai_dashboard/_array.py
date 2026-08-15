@@ -14,7 +14,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
-from ._ai import DEFAULT_MODEL, CodeResponse, NumpyCodeGen
+from ._ai import DEFAULT_MODEL, ChatResult, CodeResponse, NumpyCodeGen
 from ._exceptions import NumpyAIError
 from ._utils import NumpyMetadataCollector, clean_code, optional_globals
 from ._validator import NumpyValidator
@@ -180,7 +180,28 @@ class array:
     # chat
     # ------------------------------------------------------------------
     def chat(self, query: str) -> Any:
-        """Handle a natural-language query by generating and executing NumPy code."""
+        """Handle a natural-language query by generating and executing NumPy code.
+
+        Returns the result, or ``None`` after ``max_tries`` failed attempts. Use
+        :meth:`ask` when you also need the code, the judgment, or the errors,
+        which this method only prints.
+        """
+        result = self.ask(query)
+        if not result.ok:
+            self._print_error_table(result.errors)
+            warnings.warn(
+                f"Validation failed after {self.MAX_TRIES} attempts. Please check the validity of the code.",
+                stacklevel=2,
+            )
+        return result.value
+
+    def ask(self, query: str) -> ChatResult:
+        """Like :meth:`chat`, but returns everything the query produced.
+
+        The value, the code that produced it, the model's description of it, the
+        judgment, and one error per failed attempt. Nothing is raised and nothing
+        is warned about; failure shows up as ``result.ok`` being False.
+        """
         if not isinstance(query, str):
             raise TypeError("query must be a string")
 
@@ -188,8 +209,9 @@ class array:
             Panel(f"[bold cyan]Query:[/bold cyan] {query}", border_style="blue")
         )
 
-        error_messages: list[str] = []
+        errors: list[str] = []
         prior_feedback: str | None = None
+        last_judgment = None
         for attempt in range(1, self.MAX_TRIES + 1):
             is_last = attempt == self.MAX_TRIES
             if self.verbose or is_last:
@@ -205,9 +227,7 @@ class array:
                 result, explainer = self._execute(response.code, self._data)
 
                 if result is None:
-                    error_messages.append(
-                        f"Try {attempt}: Code execution returned None"
-                    )
+                    errors.append(f"Try {attempt}: Code execution returned None")
                     prior_feedback = "code execution produced no `output` variable"
                     if self.verbose or is_last:
                         console.print(
@@ -222,30 +242,35 @@ class array:
                 judgment = self._code_generator.judge(
                     query=query, code=response.code, metadata=str(explainer or "")
                 )
+                last_judgment = judgment
                 if self.verbose or is_last:
                     self._print_judgment(judgment)
 
                 if judgment.interprets_query_correctly:
                     console.print("[bold green]✓[/bold green] Judgment passed!")
-                    return result
+                    return ChatResult(
+                        value=result,
+                        code=response.code,
+                        description=str(explainer or ""),
+                        judgment=judgment,
+                        attempts=attempt,
+                        errors=errors,
+                    )
 
                 prior_feedback = f"judgment rejected: {judgment.reason}"
-                error_messages.append(f"Try {attempt}: {prior_feedback}")
+                errors.append(f"Try {attempt}: {prior_feedback}")
 
             except Exception as e:
-                error_messages.append(f"Try {attempt}: {e}")
+                errors.append(f"Try {attempt}: {e}")
                 prior_feedback = f"exception in previous attempt: {e}"
                 if self.verbose or is_last:
                     console.print(
                         f"[bold red]✗[/bold red] Attempt {attempt} failed: {e}"
                     )
 
-        self._print_error_table(error_messages)
-        warnings.warn(
-            f"Validation failed after {self.MAX_TRIES} attempts. Please check the validity of the code.",
-            stacklevel=2,
+        return ChatResult(
+            judgment=last_judgment, attempts=self.MAX_TRIES, errors=errors
         )
-        return None
 
     # ------------------------------------------------------------------
     # helpers
