@@ -10,19 +10,18 @@ the memory of driving calamine from Python.
 Delimited text goes through :func:`pandas.read_csv`, whose C parser is already
 the fast path for that format.
 
-Both return a :class:`pandas.DataFrame`. Numeric columns can be handed to NumPy
-with ``df["units"].to_numpy()`` at essentially no cost.
+Both return a :class:`numpyai_dashboard.frame`: the DataFrame on ``.data``, with
+a ``.chat()`` method that can see every column.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from ._ai import DEFAULT_MODEL
 from ._exceptions import NumpyAIError
-
-if TYPE_CHECKING:  # pragma: no cover
-    import pandas as pd
+from ._frame import frame
 
 #: Extensions the calamine backend understands.
 EXCEL_SUFFIXES = (".xlsx", ".xls", ".xlsb", ".ods")
@@ -76,8 +75,11 @@ def read_excel(
     sheet: int | str = 0,
     header: bool = True,
     n_rows: int | None = None,
-) -> pd.DataFrame:
-    """Read a spreadsheet into a :class:`pandas.DataFrame`.
+    verbose: bool = False,
+    model: Any = DEFAULT_MODEL,
+    max_tries: int = 3,
+) -> frame:
+    """Read a spreadsheet into a :class:`numpyai_dashboard.frame`.
 
     Supports ``.xlsx``, ``.xls``, ``.xlsb`` and ``.ods``.
 
@@ -97,10 +99,13 @@ def read_excel(
         columns are named ``col0``, ``col1``, ...
     n_rows:
         Read at most this many data rows. Useful for previewing a large sheet.
+    verbose, model, max_tries:
+        Forwarded to :class:`numpyai_dashboard.frame`.
 
     Returns
     -------
-    pandas.DataFrame
+    numpyai_dashboard.frame
+        The DataFrame is on ``.data``; ``.chat()`` asks questions about it.
 
     Raises
     ------
@@ -126,13 +131,13 @@ def read_excel(
         header_row=0 if header else None,
         n_rows=n_rows,
     )
-    frame = worksheet.to_pandas()
+    result = worksheet.to_pandas()
 
     # fastexcel names unnamed columns __UNNAMED__<i>, both for headerless sheets
     # and for individual blank header cells. Present them as col<i> either way.
-    frame.columns = _positional_names(frame.columns)
+    result.columns = _positional_names(result.columns)
 
-    return frame
+    return frame(result, verbose=verbose, model=model, max_tries=max_tries)
 
 
 def read_csv(
@@ -140,9 +145,12 @@ def read_csv(
     *,
     header: bool = True,
     n_rows: int | None = None,
+    verbose: bool = False,
+    model: Any = DEFAULT_MODEL,
+    max_tries: int = 3,
     **kwargs: Any,
-) -> pd.DataFrame:
-    """Read delimited text into a :class:`pandas.DataFrame`.
+) -> frame:
+    """Read delimited text into a :class:`numpyai_dashboard.frame`.
 
     A thin wrapper over :func:`pandas.read_csv` that matches
     :func:`read_excel`'s contract: the same ``header`` and ``n_rows`` arguments,
@@ -162,12 +170,15 @@ def read_csv(
         columns are named ``col0``, ``col1``, ...
     n_rows:
         Read at most this many data rows.
+    verbose, model, max_tries:
+        Forwarded to :class:`numpyai_dashboard.frame`.
     **kwargs:
         Passed through to :func:`pandas.read_csv`.
 
     Returns
     -------
-    pandas.DataFrame
+    numpyai_dashboard.frame
+        The DataFrame is on ``.data``; ``.chat()`` asks questions about it.
 
     Raises
     ------
@@ -183,7 +194,7 @@ def read_csv(
     pandas = _load_pandas()
 
     kwargs.setdefault("sep", "\t" if ".tsv" in suffixes else ",")
-    frame = pandas.read_csv(
+    result = pandas.read_csv(
         path,
         header=0 if header else None,
         nrows=n_rows,
@@ -191,6 +202,6 @@ def read_csv(
     )
 
     # With header=False pandas numbers the columns 0, 1, 2; match read_excel.
-    frame.columns = _positional_names(frame.columns)
+    result.columns = _positional_names(result.columns)
 
-    return frame
+    return frame(result, verbose=verbose, model=model, max_tries=max_tries)

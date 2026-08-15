@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from _xlsx import write_xlsx
 
+from numpyai_dashboard import frame as npi_frame
 from numpyai_dashboard import read_csv, read_excel
 from numpyai_dashboard._exceptions import NumpyAIError
 
@@ -30,11 +31,13 @@ def book(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_returns_a_dataframe(book):
+def test_returns_a_chat_capable_frame(book):
     path = book([["a", "b"], [1, 2.5]])
-    frame = read_excel(path)
-    assert isinstance(frame, pd.DataFrame)
-    assert frame.columns.tolist() == ["a", "b"]
+    result = read_excel(path)
+    assert isinstance(result, npi_frame)
+    assert isinstance(result.data, pd.DataFrame)
+    assert result.columns.tolist() == ["a", "b"]
+    assert hasattr(result, "chat")
 
 
 def test_mixed_sheet_keeps_every_column(book):
@@ -170,10 +173,11 @@ def csv_file(tmp_path):
     return _write
 
 
-def test_read_csv_returns_a_dataframe(csv_file):
-    frame = read_csv(csv_file("a,b\n1,2.5\n"))
-    assert isinstance(frame, pd.DataFrame)
-    assert frame.columns.tolist() == ["a", "b"]
+def test_read_csv_returns_a_chat_capable_frame(csv_file):
+    result = read_csv(csv_file("a,b\n1,2.5\n"))
+    assert isinstance(result, npi_frame)
+    assert isinstance(result.data, pd.DataFrame)
+    assert result.columns.tolist() == ["a", "b"]
 
 
 def test_read_csv_blank_becomes_nan(csv_file):

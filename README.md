@@ -65,22 +65,19 @@ export GEMINI_API_KEY=...
 
 ### Loading a spreadsheet
 
-Requires `numpyai-dashboard[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods`, and
-returns a `pandas.DataFrame`.
+Requires `numpyai-dashboard[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods`.
 
 ```python
 import numpyai_dashboard as npi
 
 df = npi.read_excel("sales.xlsx")     # or sheet="Q3", header=False, n_rows=1000
-print(df.columns.tolist())            # ['region', 'date', 'units', 'price']
+print(df.columns.tolist())            # ['region', 'order_date', 'units', 'price']
 ```
 
-Numeric columns hand off to NumPy for free, so you can mix the two freely:
-
-```python
-units = df["units"].to_numpy()
-np.nansum(units[df["region"].to_numpy() == "EMEA"])
-```
+You get a `frame`: a DataFrame that can answer questions. Attribute and item
+access pass straight through, so `df.head()`, `df["units"]` and
+`df["revenue"] = ...` work as usual. `df.data` is the real DataFrame, which is
+what a Panel `Tabulator` wants.
 
 Reading goes through [fastexcel](https://github.com/ToucanToco/fastexcel) and the
 Rust [calamine](https://github.com/tafia/calamine) parser, which measures about 3x
@@ -99,6 +96,33 @@ df = npi.read_csv("sales.csv.gz", usecols=["region", "units"])
 
 Delimited text carries no types, so pass `parse_dates=["order_date"]` through to
 pandas for real `datetime64` columns.
+
+### Asking about a table
+
+Every column is visible to the model, with its dtype, its range, and the distinct
+values of the categorical ones. So questions can name columns and span types:
+
+```python
+df["revenue"] = df["units"] * df["unit_price"] * (1 - df["discount"].fillna(0))
+
+df.chat("Total revenue by region since March.").value
+# region
+# AMER     58373.70
+# APAC     75876.63
+# EMEA     70421.71
+# LATAM    65757.28
+```
+
+Both pandas and NumPy are in scope, so the model picks whichever suits the
+question:
+
+```python
+output = df.groupby("region")["revenue"].sum()                       # pandas
+output = np.nansum(rev[df["region"].to_numpy() == "EMEA"])           # numpy
+```
+
+For a NumPy array rather than a table, `npi.array(...)` works the same way and
+shows the model one homogeneous array instead.
 
 ### What a question returns
 

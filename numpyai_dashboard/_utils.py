@@ -9,6 +9,9 @@ from collections.abc import Sequence
 
 import numpy as np
 
+#: A text column with at most this many distinct values is listed in full.
+_MAX_CATEGORIES = 20
+
 #: Bounds on the array preview embedded in the LLM prompt.
 _PREVIEW_ROWS = 10
 _PREVIEW_COLS = 20
@@ -224,3 +227,58 @@ _FENCE_RE = re.compile(r"^\s*```(?:\w+)?\s*|\s*```\s*$", re.MULTILINE)
 def clean_code(code: str) -> str:
     """Strip markdown code fences from an LLM response."""
     return _FENCE_RE.sub("", code).strip()
+
+
+def describe_column(series) -> dict:
+    """Summarise one DataFrame column for the LLM prompt."""
+    import pandas as pd
+
+    info: dict = {"dtype": str(series.dtype)}
+    n_null = int(series.isna().sum())
+    if n_null:
+        info["nulls"] = n_null
+
+    if pd.api.types.is_bool_dtype(series):
+        info["kind"] = "boolean"
+        info["true_count"] = int(series.sum())
+
+    elif pd.api.types.is_numeric_dtype(series):
+        info["kind"] = "numeric"
+        present = series.dropna()
+        if len(present):
+            info["min"] = float(present.min())
+            info["max"] = float(present.max())
+
+    elif pd.api.types.is_datetime64_any_dtype(series):
+        info["kind"] = "datetime"
+        present = series.dropna()
+        if len(present):
+            info["min"] = str(present.min())
+            info["max"] = str(present.max())
+
+    else:
+        info["kind"] = "text"
+        distinct = series.dropna().unique()
+        info["n_unique"] = int(len(distinct))
+        if len(distinct) <= _MAX_CATEGORIES:
+            info["categories"] = [str(v) for v in distinct]
+        else:
+            info["examples"] = [str(v) for v in distinct[:5]]
+
+    return info
+
+
+def frame_metadata(frame) -> dict:
+    """Collect metadata about a DataFrame, column by column.
+
+    The per-column detail is the point: a model that knows `region` holds four
+    named values can answer questions about them, where one told only that the
+    frame is 150x9 cannot.
+    """
+    return {
+        "rows": int(len(frame)),
+        "columns": list(frame.columns),
+        "column_summary": {
+            str(name): describe_column(frame[name]) for name in frame.columns
+        },
+    }

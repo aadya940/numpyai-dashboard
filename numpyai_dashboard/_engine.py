@@ -1,0 +1,175 @@
+"""The generate, execute, judge, retry loop.
+
+Every entry point shares this: a NumPy array, a DataFrame, or a multi-array
+session. They differ only in what the prompt says and which variables the
+generated code can see, so both are passed in and the loop itself is written
+once.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+import numpy as np
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.table import Table
+
+from ._ai import ChatResult, CodeResponse, Judgment, NumpyCodeGen
+from ._exceptions import NumpyAIError
+from ._utils import clean_code, optional_globals
+from ._validator import NumpyValidator
+
+console = Console()
+
+
+def execute(code: str, data_vars: dict[str, Any], *, verbose: bool) -> tuple[Any, Any]:
+    """Run generated code and return ``(output, metadata)``.
+
+    ``data_vars`` is what the code is allowed to see beyond NumPy and the
+    optional libraries: ``{"arr": ...}``, ``{"df": ...}``, or one entry per
+    array in a session. Returns ``(None, None)`` on any error, which the caller
+    treats as a failed attempt.
+    """
+    try:
+        local_vars: dict[str, Any] = {"np": np, **optional_globals(), **data_vars}
+        exec(code, {"__builtins__": __builtins__}, local_vars)
+        result = local_vars.get("output")
+        explainer = local_vars.get("metadata")
+
+        if verbose:
+            if result is not None:
+                console.print("\n".join(str(result).split("\n")[:10]))
+            if explainer is not None:
+                console.print(str(explainer))
+
+        return result, explainer
+
+    except Exception as e:
+        if verbose:
+            console.print(f"[bold red]✗[/bold red] Error executing code: {e}")
+        return None, None
+
+
+def _print_judgment(j: Judgment) -> None:
+    mark = "[green]✓[/green]" if j.interprets_query_correctly else "[red]✗[/red]"
+    body = j.reason or "correctly interprets the query"
+    console.print(Panel(f"{mark} {body}", title="Judgment", border_style="magenta"))
+
+
+def _print_error_table(errors: list[str]) -> None:
+    table = Table(title="Error Details", box=box.DOUBLE_EDGE)
+    table.add_column("Attempt", style="cyan")
+    table.add_column("Error", style="red")
+    for i, msg in enumerate(errors, 1):
+        table.add_row(str(i), msg)
+    console.print(table)
+
+
+def _generate(
+    build_prompt: Callable[[str | None], str],
+    prior_feedback: str | None,
+    generator: NumpyCodeGen,
+    validator: NumpyValidator,
+    *,
+    show: bool,
+) -> CodeResponse:
+    response = generator.generate_code(build_prompt(prior_feedback))
+    response = CodeResponse(
+        code=clean_code(response.code), explanation=response.explanation
+    )
+
+    if show:
+        console.print(
+            Panel(
+                Syntax(response.code, "python", theme="monokai", line_numbers=True),
+                title="[bold]Generated Code[/bold]",
+                border_style="blue",
+            )
+        )
+
+    if not validator.validate_code(response.code):
+        raise NumpyAIError("Generated code failed syntax validation")
+    return response
+
+
+def run_chat(
+    query: str,
+    *,
+    data_vars: dict[str, Any],
+    build_prompt: Callable[[str | None], str],
+    generator: NumpyCodeGen,
+    validator: NumpyValidator,
+    max_tries: int,
+    verbose: bool,
+) -> ChatResult:
+    """Answer ``query``, retrying until the judge accepts or attempts run out.
+
+    ``build_prompt`` takes the previous rejection reason, or None on the first
+    attempt, so each retry can tell the model what went wrong last time.
+    """
+    if not isinstance(query, str):
+        raise TypeError("query must be a string")
+
+    console.print(Panel(f"[bold cyan]Query:[/bold cyan] {query}", border_style="blue"))
+
+    errors: list[str] = []
+    prior_feedback: str | None = None
+    last_judgment: Judgment | None = None
+
+    for attempt in range(1, max_tries + 1):
+        loud = verbose or attempt == max_tries
+        if loud:
+            console.print(f"[bold green]Attempt {attempt}/{max_tries}...[/bold green]")
+
+        try:
+            response = _generate(
+                build_prompt, prior_feedback, generator, validator, show=loud
+            )
+            if loud:
+                console.print("[bold]Executing generated code...[/bold]")
+            result, explainer = execute(response.code, data_vars, verbose=verbose)
+
+            if result is None:
+                errors.append(f"Try {attempt}: Code execution returned None")
+                prior_feedback = "code execution produced no `output` variable"
+                if loud:
+                    console.print(
+                        f"[bold red]✗[/bold red] Attempt {attempt} failed: execution returned None"
+                    )
+                continue
+
+            judgment = generator.judge(
+                query=query, code=response.code, metadata=str(explainer or "")
+            )
+            last_judgment = judgment
+            if loud:
+                _print_judgment(judgment)
+
+            if judgment.interprets_query_correctly:
+                console.print("[bold green]✓[/bold green] Judgment passed!")
+                return ChatResult(
+                    value=result,
+                    code=response.code,
+                    description=str(explainer or ""),
+                    judgment=judgment,
+                    attempts=attempt,
+                    errors=errors,
+                )
+
+            prior_feedback = f"judgment rejected: {judgment.reason}"
+            errors.append(f"Try {attempt}: {prior_feedback}")
+
+        except Exception as e:
+            errors.append(f"Try {attempt}: {e}")
+            prior_feedback = f"exception in previous attempt: {e}"
+            if loud:
+                console.print(f"[bold red]✗[/bold red] Attempt {attempt} failed: {e}")
+
+    # Failure is carried in the return value, but the table is still printed
+    # because that is how a notebook user sees what went wrong.
+    _print_error_table(errors)
+    return ChatResult(judgment=last_judgment, attempts=max_tries, errors=errors)

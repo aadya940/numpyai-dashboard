@@ -3,6 +3,7 @@
 from ._ai import ChatResult, Judgment
 from ._array import array
 from ._diagnosis import Diagnosis
+from ._frame import frame
 from ._io import read_csv, read_excel
 from ._session import NumpyAISession
 
@@ -10,6 +11,7 @@ __all__ = [
     "array",
     "NumpyAISession",
     "Diagnosis",
+    "frame",
     "ChatResult",
     "Judgment",
     "read_csv",

@@ -48,8 +48,9 @@ def _run_coro(coro: Awaitable[T]) -> T:
 DEFAULT_MODEL = "google:gemini-2.5-flash"
 
 SYSTEM_PROMPT = (
-    "You are a coding assistant who generates only NumPy and Python code. "
-    "You respond with executable Python that operates on pre-defined arrays."
+    "You are a coding assistant who generates only Python code, using NumPy and "
+    "pandas. You respond with executable Python that operates on pre-defined "
+    "arrays and DataFrames."
 )
 
 
@@ -93,9 +94,8 @@ class Judgment(BaseModel):
 class ChatResult(BaseModel):
     """Everything one natural-language query produced.
 
-    ``chat`` returns only ``value``, which is all a notebook needs because the
-    rest is printed to the console as it happens. A user interface cannot read a
-    console, so ``ask`` returns this instead.
+    The console shows all of this as it happens, which is enough for a notebook.
+    A user interface cannot read a console, so it comes back as data too.
 
     ``value`` is whatever the generated code assigned to ``output``: a scalar, an
     array, a DataFrame, a figure. It is produced by executing that code locally,
@@ -328,4 +328,80 @@ CORRECT EXAMPLES:
     arr2_imputed = np.where(np.isnan(arr2), np.mean(arr1), arr2)
     output = arr2_imputed
     metadata = "arr2 with NaNs replaced by mean of arr1"
+"""
+
+
+def _column_block(summary: dict) -> str:
+    """Render a DataFrame's column summary for the prompt."""
+    lines = []
+    for name, info in summary.items():
+        kind = info.get("kind", "")
+        bits = []
+        if kind == "numeric" and "min" in info:
+            bits.append(f"{info['min']:g} to {info['max']:g}")
+        elif kind == "datetime" and "min" in info:
+            bits.append(f"{info['min']} to {info['max']}")
+        elif kind == "boolean":
+            bits.append(f"{info.get('true_count', '?')} true")
+        elif kind == "text":
+            if "categories" in info:
+                bits.append("one of: " + ", ".join(repr(c) for c in info["categories"]))
+            else:
+                bits.append(f"{info.get('n_unique', '?')} distinct values")
+        if info.get("nulls"):
+            bits.append(f"{info['nulls']} null")
+        detail = f"  ({', '.join(bits)})" if bits else ""
+        lines.append(f"    df[{name!r}]  {info.get('dtype', '')}{detail}")
+    return "\n".join(lines)
+
+
+def prompt_frame(
+    query: str,
+    metadata: dict,
+    prior_feedback: str | None = None,
+) -> str:
+    """Build the code-generation prompt for a DataFrame-backed query."""
+    feedback_block = (
+        f"\nPREVIOUS ATTEMPT WAS REJECTED. Reason: {prior_feedback}\n"
+        "Correct that specific issue this time.\n"
+        if prior_feedback
+        else ""
+    )
+    return f"""Generate Python code to perform the following operation:
+
+{query}
+{feedback_block}
+
+`df` is a pandas DataFrame with {metadata.get("rows", "?")} rows. Its columns:
+
+{_column_block(metadata.get("column_summary", {}))}
+
+CRITICAL INSTRUCTIONS:
+1. The DataFrame is ALREADY defined as `df`. DO NOT create or reload it, and do
+   not invent columns that are not listed above.
+2. DO NOT IMPORT anything. `pd` (pandas), `np` (numpy), and where installed
+   `scipy`, `sklearn` and `plt` are already available.
+3. Use whichever fits the question. pandas for grouping, joining and resampling;
+   NumPy for array maths. Both are fine, and mixing them is fine:
+       output = df.groupby('region')['units'].sum()
+       output = np.nansum(df['units'].to_numpy()[df['region'].to_numpy() == 'EMEA'])
+4. `df[col].to_numpy()` on a text column gives dtype=object. `np.char` and
+   `np.strings` need `.astype(str)` first; comparisons and `np.isin` do not.
+5. DO NOT mutate `df`. Derive new values into `output` instead.
+6. There MUST be exactly one variable named `output` containing what was asked for.
+7. There MUST be exactly one variable named `metadata` - a short string describing
+   `output`.
+
+CORRECT EXAMPLES:
+    # Revenue by region
+    output = (df['units'] * df['unit_price']).groupby(df['region']).sum()
+    metadata = "Series: total revenue per region"
+
+    # Rows after a date
+    output = df[df['order_date'] > '2023-04-01']
+    metadata = "DataFrame: orders placed after 2023-04-01"
+
+    # A single number
+    output = float(df['units'].mean())
+    metadata = "scalar: mean units"
 """

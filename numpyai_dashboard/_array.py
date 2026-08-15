@@ -7,15 +7,11 @@ from operator import add, floordiv, matmul, mod, mul, pow, sub, truediv
 from typing import Any
 
 import numpy as np
-from rich import box
 from rich.console import Console
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.table import Table
 
-from ._ai import DEFAULT_MODEL, ChatResult, CodeResponse, NumpyCodeGen
-from ._exceptions import NumpyAIError
-from ._utils import NumpyMetadataCollector, clean_code, optional_globals
+from ._ai import DEFAULT_MODEL, ChatResult, NumpyCodeGen
+from ._engine import run_chat
+from ._utils import NumpyMetadataCollector
 from ._validator import NumpyValidator
 
 console = Console()
@@ -70,7 +66,6 @@ class array:
         self.MAX_TRIES = max_tries
         self.verbose = verbose
 
-        self._output_metadata: dict = {}
         self.current_prompt: str | None = None
         self.metadata = self._metadata_collector.metadata(self._data, self.columns)
         self._model = model
@@ -186,152 +181,15 @@ class array:
         reported through ``.ok`` rather than by raising, so a bad query never
         ends a session.
         """
-        if not isinstance(query, str):
-            raise TypeError("query must be a string")
-
-        console.print(
-            Panel(f"[bold cyan]Query:[/bold cyan] {query}", border_style="blue")
+        self.current_prompt = query
+        return run_chat(
+            query,
+            data_vars={"arr": self._data},
+            build_prompt=lambda prior: self._code_generator.prompt_single(
+                query=query, metadata=self.metadata, prior_feedback=prior
+            ),
+            generator=self._code_generator,
+            validator=self._validator,
+            max_tries=self.MAX_TRIES,
+            verbose=self.verbose,
         )
-
-        errors: list[str] = []
-        prior_feedback: str | None = None
-        last_judgment = None
-        for attempt in range(1, self.MAX_TRIES + 1):
-            is_last = attempt == self.MAX_TRIES
-            if self.verbose or is_last:
-                console.print(
-                    f"[bold green]Attempt {attempt}/{self.MAX_TRIES}...[/bold green]"
-                )
-            self.current_prompt = query
-
-            try:
-                response = self._generate_response(query, attempt, prior_feedback)
-                if self.verbose or is_last:
-                    console.print("[bold]Executing generated code...[/bold]")
-                result, explainer = self._execute(response.code, self._data)
-
-                if result is None:
-                    errors.append(f"Try {attempt}: Code execution returned None")
-                    prior_feedback = "code execution produced no `output` variable"
-                    if self.verbose or is_last:
-                        console.print(
-                            f"[bold red]✗[/bold red] Attempt {attempt} failed: execution returned None"
-                        )
-                    continue
-
-                self._output_metadata = (
-                    self._metadata_collector.collect_output_metadata(result)
-                )
-
-                judgment = self._code_generator.judge(
-                    query=query, code=response.code, metadata=str(explainer or "")
-                )
-                last_judgment = judgment
-                if self.verbose or is_last:
-                    self._print_judgment(judgment)
-
-                if judgment.interprets_query_correctly:
-                    console.print("[bold green]✓[/bold green] Judgment passed!")
-                    return ChatResult(
-                        value=result,
-                        code=response.code,
-                        description=str(explainer or ""),
-                        judgment=judgment,
-                        attempts=attempt,
-                        errors=errors,
-                    )
-
-                prior_feedback = f"judgment rejected: {judgment.reason}"
-                errors.append(f"Try {attempt}: {prior_feedback}")
-
-            except Exception as e:
-                errors.append(f"Try {attempt}: {e}")
-                prior_feedback = f"exception in previous attempt: {e}"
-                if self.verbose or is_last:
-                    console.print(
-                        f"[bold red]✗[/bold red] Attempt {attempt} failed: {e}"
-                    )
-
-        # Every attempt was rejected. The failure is carried in the return value,
-        # but the table is still printed because that is how a notebook user sees
-        # what went wrong.
-        self._print_error_table(errors)
-        return ChatResult(
-            judgment=last_judgment, attempts=self.MAX_TRIES, errors=errors
-        )
-
-    # ------------------------------------------------------------------
-    # helpers
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _print_error_table(error_messages: list[str]) -> None:
-        table = Table(title="Error Details", box=box.DOUBLE_EDGE)
-        table.add_column("Attempt", style="cyan")
-        table.add_column("Error", style="red")
-        for i, msg in enumerate(error_messages, 1):
-            table.add_row(str(i), msg)
-        console.print(table)
-
-    @staticmethod
-    def _print_judgment(j) -> None:
-        mark = "[green]✓[/green]" if j.interprets_query_correctly else "[red]✗[/red]"
-        body = j.reason or "correctly interprets the query"
-        console.print(Panel(f"{mark} {body}", title="Judgment", border_style="magenta"))
-
-    def _generate_response(
-        self,
-        query: str,
-        attempt: int,
-        prior_feedback: str | None = None,
-    ) -> CodeResponse:
-        prompt = self._code_generator.prompt_single(
-            query=query, metadata=self.metadata, prior_feedback=prior_feedback
-        )
-        response = self._code_generator.generate_code(prompt)
-        response = CodeResponse(
-            code=clean_code(response.code),
-            explanation=response.explanation,
-        )
-
-        if self.verbose or attempt == self.MAX_TRIES:
-            console.print(
-                Panel(
-                    Syntax(response.code, "python", theme="monokai", line_numbers=True),
-                    title="[bold]Generated Code[/bold]",
-                    border_style="blue",
-                )
-            )
-
-        if not self._validator.validate_code(response.code):
-            raise NumpyAIError("Generated code failed syntax validation")
-        return response
-
-    def _execute(self, code: str, args) -> tuple[Any, Any]:
-        """Execute generated code in a controlled namespace.
-
-        Returns ``(result, explainer)``. On error, returns ``(None, None)``.
-        """
-        try:
-            local_vars: dict[str, Any] = {"np": np, **optional_globals()}
-
-            if isinstance(args, dict):
-                local_vars.update(args)
-            else:
-                local_vars["arr"] = args
-
-            exec(code, {"__builtins__": __builtins__}, local_vars)
-            result = local_vars.get("output")
-            explainer = local_vars.get("metadata")
-
-            if self.verbose:
-                if result is not None:
-                    console.print("\n".join(str(result).split("\n")[:10]))
-                if explainer is not None:
-                    console.print(str(explainer))
-
-            return result, explainer
-
-        except Exception as e:
-            if self.verbose:
-                console.print(f"[bold red]✗[/bold red] Error executing code: {e}")
-            return None, None
