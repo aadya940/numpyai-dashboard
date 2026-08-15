@@ -10,15 +10,12 @@ them in plain English.
 Built on [Pydantic AI](https://ai.pydantic.dev/), so Google Gemini, OpenAI,
 Anthropic or any other supported model works without touching the library code.
 
-**Status:** early. The file loading layer works; the dashboard layer is next.
-
 Forked from [numpyai](https://github.com/aadya940/numpyai). It installs as
 `numpyai_dashboard`, so it will not collide with an existing `numpyai` install.
 
 ## Features
 
-- Load a spreadsheet or CSV into a DataFrame with one call. Text, dates and numbers
-  are all preserved, each with its own dtype.
+- Load a spreadsheet or CSV into a DataFrame with one call.
 - Ask questions in English; the library generates and executes NumPy code for you.
 - `numpyai_dashboard.Diagnosis` suggests analysis steps for your data.
 - `numpyai_dashboard.NumpyAISession` chats over multiple arrays at once.
@@ -78,15 +75,6 @@ df = npi.read_excel("sales.xlsx")     # or sheet="Q3", header=False, n_rows=1000
 print(df.columns.tolist())            # ['region', 'date', 'units', 'price']
 ```
 
-Every column is kept, with its type inferred by the reader:
-
-| In the sheet | Becomes | Blank cells |
-| --- | --- | --- |
-| numbers | `float64` / `int64` | `NaN` |
-| dates and datetimes | `datetime64` | `NaT` |
-| `TRUE` / `FALSE` | `bool` | null |
-| anything else | string | null |
-
 Numeric columns hand off to NumPy for free, so you can mix the two freely:
 
 ```python
@@ -94,11 +82,9 @@ units = df["units"].to_numpy()
 np.nansum(units[df["region"].to_numpy() == "EMEA"])
 ```
 
-Reading is delegated to [fastexcel](https://github.com/ToucanToco/fastexcel), which
-wraps the Rust [calamine](https://github.com/tafia/calamine) parser and emits Arrow
-data directly. Type inference happens in Rust and the data crosses into Python as
-columnar buffers rather than one object per cell, which measures about 3x faster and
-roughly half the memory of driving calamine from Python.
+Reading goes through [fastexcel](https://github.com/ToucanToco/fastexcel) and the
+Rust [calamine](https://github.com/tafia/calamine) parser, which measures about 3x
+faster and half the memory of reading calamine from Python.
 
 ### Loading delimited text
 
@@ -111,9 +97,8 @@ df = npi.read_csv("sales.tsv")            # tab inferred from the extension
 df = npi.read_csv("sales.csv.gz", usecols=["region", "units"])
 ```
 
-Unlike a spreadsheet, delimited text carries no types, so a date column arrives as
-text. Pass `parse_dates=["order_date"]` through to pandas when you need real
-`datetime64`.
+Delimited text carries no types, so pass `parse_dates=["order_date"]` through to
+pandas for real `datetime64` columns.
 
 ### Single array
 
