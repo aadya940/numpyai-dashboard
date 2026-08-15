@@ -7,18 +7,13 @@
 Load spreadsheets into [NumPy](https://github.com/numpy/numpy) and explore them in
 plain English.
 
-`numpyai-dashboard` reads `.xlsx`/`.xls`/`.xlsb`/`.ods` straight into a NumPy array,
-carries your column names through to the model, and lets you ask questions about the
-data in natural language. It is built on [Pydantic AI](https://ai.pydantic.dev/), so
-Google Gemini, OpenAI, Anthropic or any other supported model works without touching
-the library code.
+Built on [Pydantic AI](https://ai.pydantic.dev/), so Google Gemini, OpenAI,
+Anthropic or any other supported model works without touching the library code.
 
-> **Status:** early. The spreadsheet loading layer is in place; the dashboard/
-> visualization layer is the next milestone.
->
-> This project is a fork of [numpyai](https://github.com/aadya940/numpyai) and
-> currently shares most of its core. It installs as `numpyai_dashboard`, so it will
-> not collide with an existing `numpyai` install.
+**Status:** early. The spreadsheet loading layer works; the dashboard layer is next.
+
+Forked from [numpyai](https://github.com/aadya940/numpyai). It installs as
+`numpyai_dashboard`, so it will not collide with an existing `numpyai` install.
 
 ## Features
 
@@ -29,7 +24,6 @@ the library code.
 - Generated code is syntax-checked and independently validated before returning.
 - Automatic retries with error context.
 - Verbose mode (`verbose=True`) prints every intermediate step.
-- Provider-agnostic - any Pydantic AI model spec works.
 
 ## Installation
 
@@ -58,17 +52,42 @@ pip install -e ".[all,dev]"
 
 Set the API key for your chosen provider. Pydantic AI reads standard env vars:
 
-| Provider  | Environment variable  |
-| --------- | --------------------- |
-| Google    | `GEMINI_API_KEY`      |
-| OpenAI    | `OPENAI_API_KEY`      |
-| Anthropic | `ANTHROPIC_API_KEY`   |
+| Provider  | Environment variable |
+| --------- | -------------------- |
+| Google    | `GEMINI_API_KEY`     |
+| OpenAI    | `OPENAI_API_KEY`     |
+| Anthropic | `ANTHROPIC_API_KEY`  |
 
 ```sh
 export GEMINI_API_KEY=...
 ```
 
 ## Usage
+
+### Loading a spreadsheet
+
+Requires `numpyai-dashboard[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods` via
+[python-calamine](https://github.com/dimastbk/python-calamine).
+
+```python
+import numpyai_dashboard as npi
+
+arr = npi.read_excel("sales.xlsx")          # or sheet="Q3", header=False
+print(arr.columns)                          # ['units', 'unit_price', 'discount']
+print(arr.chat("Total revenue after discount."))
+```
+
+Column names reach the model, so you can refer to them by name rather than index.
+
+The array is a homogeneous `float64` matrix, so only columns that convert cleanly
+are kept:
+
+| In the sheet | Becomes |
+| --- | --- |
+| numbers, numeric text | `float64` |
+| blank cells | `NaN` |
+| `TRUE` / `FALSE` | `1.0` / `0.0` |
+| text, dates | dropped, with a `UserWarning` naming each one |
 
 ### Single array
 
@@ -93,36 +112,7 @@ npi.array(data, model="openai:gpt-4o")
 npi.array(data, model="google:gemini-2.5-pro")
 ```
 
-You can also pass a pre-configured `pydantic_ai.models.Model` instance for full control.
-
-### Loading a spreadsheet
-
-Requires `numpyai-dashboard[excel]`. Reads `.xlsx`, `.xls`, `.xlsb` and `.ods` via
-[python-calamine](https://github.com/dimastbk/python-calamine).
-
-```python
-import numpyai_dashboard as npi
-
-arr = npi.read_excel("sales.xlsx")          # or sheet="Q3", header=False
-print(arr.columns)                          # ['units', 'unit_price', 'discount']
-print(arr.chat("Total revenue after discount."))
-```
-
-Column names are passed to the model, so you can refer to them in plain English
-rather than by index.
-
-Because the array handed to the model is a homogeneous `float64` matrix, only
-columns that convert cleanly are kept:
-
-| In the sheet | Becomes |
-| --- | --- |
-| numbers, numeric text | `float64` |
-| blank cells | `NaN` |
-| `TRUE` / `FALSE` | `1.0` / `0.0` |
-| text, dates | **dropped**, with a `UserWarning` naming each one |
-
-Nothing is dropped silently — if a column you needed went missing, the warning
-tells you which and why.
+A pre-configured `pydantic_ai.models.Model` instance also works.
 
 ### Multiple arrays
 
@@ -149,7 +139,7 @@ steps = diag.steps(
 
 ## Supported LLM providers
 
-Anything Pydantic AI supports - Google (Gemini), OpenAI, Anthropic, Groq, Mistral,
+Anything Pydantic AI supports: Google (Gemini), OpenAI, Anthropic, Groq, Mistral,
 Ollama, and OpenAI-compatible endpoints. See the
 [Pydantic AI model docs](https://ai.pydantic.dev/models/) for the full list.
 
@@ -157,10 +147,9 @@ Ollama, and OpenAI-compatible endpoints. See the
 
 - Format with `black` and lint with `ruff`.
 - Add tests under `tests/`.
-- Public API surface (`array`, `NumpyAISession`, `Diagnosis`, `read_excel`) should
-  stay stable.
+- Public API (`array`, `NumpyAISession`, `Diagnosis`, `read_excel`) should stay stable.
 
 ## License
 
-MIT - see [LICENSE](LICENSE). Forked from
+MIT, see [LICENSE](LICENSE). Forked from
 [numpyai](https://github.com/aadya940/numpyai), also MIT.
