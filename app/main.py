@@ -419,6 +419,20 @@ class Board:
             stylesheets=[TABLE_CSS],
         )
         self.grid_holder = pn.Column(sizing_mode="stretch_width")
+        self.story = pn.pane.Markdown(
+            visible=False,
+            sizing_mode="stretch_width",
+            styles={
+                "background": "#ffffff",
+                "border-left": f"3px solid {ACCENT}",
+                "padding": "10px 16px",
+                "border-radius": "0 12px 12px 0",
+                "box-shadow": "0 1px 2px rgba(15,23,42,.05)",
+                "font-size": "13.5px",
+                "line-height": "1.55",
+                "color": "#374151",
+            },
+        )
         self.board_caption = pn.pane.Markdown(margin=(10, 14, 0, 6))
         clear = pn.widgets.Button(
             name="Clear board",
@@ -428,9 +442,18 @@ class Board:
             margin=(6, 6, 0, 0),
         )
         clear.on_click(lambda _e: self.clear_board())
+        retell = pn.widgets.Button(
+            name="Retell the story",
+            button_type="light",
+            height=26,
+            align="center",
+            margin=(6, 4, 0, 0),
+        )
+        retell.on_click(lambda _e: asyncio.create_task(self.retell()))
         self.board_header = pn.Row(
             self.board_caption,
             pn.Spacer(sizing_mode="stretch_width"),
+            retell,
             clear,
             sizing_mode="stretch_width",
         )
@@ -686,6 +709,45 @@ class Board:
                 block.recompute(df)
         self.status.object = f"*{len(df):,} of {len(self.frame.data):,} rows*"
 
+    def _story_material(self) -> str:
+        lines = []
+        for block in reversed(self.blocks):  # oldest first: narrative order
+            value = str(block.result.value)
+            if len(value) > 220:
+                value = value[:220] + " ..."
+            lines.append(
+                f"#{block.number} {block.question}\n"
+                f"   found: {block.result.description or 'see values'}\n"
+                f"   values: {value}"
+            )
+        return "\n".join(lines)
+
+    async def retell(self) -> None:
+        """Rewrite the board's story from its current blocks. One text call."""
+        if len(self.blocks) < 2 or not HAS_KEY:
+            return
+        material = self._story_material()
+        try:
+            story = await asyncio.to_thread(
+                self._texter.generate_text,
+                "This dashboard currently shows the following blocks, in the "
+                f"order they were made:\n\n{material}\n\n"
+                "Write the story this dashboard tells, in 3-6 sentences of "
+                "markdown. Lead with the headline finding and its number. "
+                "Connect the supporting evidence, referencing blocks as #n. "
+                "End with the one caveat or open question a careful analyst "
+                "would flag. Ground every number strictly in the material "
+                "above; invent nothing.",
+            )
+        except Exception:
+            return
+        with pn.io.unlocked():
+            self.story.object = (
+                "<span style='color:#9ca3af;font-size:11px;font-weight:600;"
+                "letter-spacing:.08em'>THE STORY SO FAR</span>\n\n" + story
+            )
+            self.story.visible = True
+
     def drill(self, label: str, block: Block) -> None:
         """A clicked chart element becomes a board-wide filter, or a question.
 
@@ -694,13 +756,13 @@ class Board:
         range. Anything else drafts a drill question into the chat input, so
         the model call stays under the user's control.
         """
-        for name, kind, w in self._filter_widgets:
+        for _name, kind, w in self._filter_widgets:
             if kind == "cat" and label in w.options:
                 w.value = [] if w.value == [label] else [label]  # click twice to clear
                 return
         month = re.match(r"^(\d{4})-(\d{2})", label)
         if month:
-            for name, kind, w in self._filter_widgets:
+            for _name, kind, w in self._filter_widgets:
                 if kind == "date":
                     start = pd.Timestamp(int(month.group(1)), int(month.group(2)), 1)
                     end = start + pd.offsets.MonthEnd(1)
@@ -906,13 +968,15 @@ class Board:
             n for n, i in s.items() if i.get("kind") == "text" and "categories" in i
         ]
         dates = [n for n, i in s.items() if i.get("kind") == "datetime"]
+        # A story arc, not three arbitrary views: headline, then the trend,
+        # then what drives it.
         out = []
-        if nums and cats:
-            out.append(f"Total {nums[0]} by {cats[0]}.")
+        if nums:
+            out.append(f"Overall total {nums[0]}.")
         if nums and dates:
             out.append(f"Monthly total {nums[0]} over {dates[0]}.")
-        if nums:
-            out.append(f"Mean {nums[-1]} overall.")
+        if nums and cats:
+            out.append(f"Total {nums[0]} by {cats[0]}.")
         return out[:3]
 
     async def autostart(self) -> None:
@@ -933,10 +997,12 @@ class Board:
                         user="numpyai",
                         respond=False,
                     )
+        await self.retell()
         with pn.io.unlocked():
             self.status.object = ""
             self.chat.send(
-                "That's a starting point - what would you like to dig into?",
+                "That's a starting point - the strip above the board sums up "
+                "the story so far. What would you like to dig into?",
                 user="numpyai",
                 respond=False,
             )
@@ -997,6 +1063,7 @@ data_card = pn.Column(
 right = pn.Column(
     filter_bar,
     board.board_header,
+    board.story,
     board.grid_holder,
     data_card,
     sizing_mode="stretch_both",
