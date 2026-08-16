@@ -709,16 +709,41 @@ class Board:
                 block.recompute(df)
         self.status.object = f"*{len(df):,} of {len(self.frame.data):,} rows*"
 
+    @staticmethod
+    def _summarise_value(value, budget: int = 500) -> str:
+        """A value as narrator food: structure preserved, size bounded.
+
+        A flat str() truncation starved the narrator - handed a dict of eight
+        analyses cut at 220 chars, its caveat was that the material "isn't
+        fully displayed". It was right.
+        """
+        if isinstance(value, dict):
+            parts = []
+            for key, item in value.items():
+                parts.append(f"{key}: {Board._summarise_value(item, 90)}")
+            return " | ".join(parts)[:budget]
+        if isinstance(value, pd.Series) and len(value):
+            bits = ", ".join(f"{k}={v}" for k, v in value.head(6).items())
+            more = f" (+{len(value) - 6} more)" if len(value) > 6 else ""
+            try:
+                peak = f"; peak {value.idxmax()}={value.max()}"
+            except (TypeError, ValueError):
+                peak = ""
+            return f"[{bits}{more}{peak}]"[:budget]
+        if isinstance(value, pd.DataFrame):
+            return (
+                f"table {value.shape[0]}x{value.shape[1]} "
+                f"cols={list(value.columns)[:8]}"
+            )[:budget]
+        return str(value)[:budget]
+
     def _story_material(self) -> str:
         lines = []
         for block in reversed(self.blocks):  # oldest first: narrative order
-            value = str(block.result.value)
-            if len(value) > 220:
-                value = value[:220] + " ..."
             lines.append(
                 f"#{block.number} {block.question}\n"
                 f"   found: {block.result.description or 'see values'}\n"
-                f"   values: {value}"
+                f"   values: {self._summarise_value(block.result.value)}"
             )
         return "\n".join(lines)
 
