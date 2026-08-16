@@ -154,6 +154,32 @@ def render_value(value, chart: str | None = None):
     return pn.pane.Markdown(f"**{value}**")
 
 
+def phrase_value(value) -> str:
+    """Say the answer in a sentence, the way a person would."""
+    if isinstance(value, (int, float, np.floating, np.integer)):
+        return f"It comes to **{float(value):,.2f}**."
+    if (
+        isinstance(value, pd.Series)
+        and len(value)
+        and pd.api.types.is_numeric_dtype(value)
+    ):
+        top = value.idxmax()
+        return (
+            f"**{top}** is highest at **{float(value.max()):,.2f}**, "
+            f"across {len(value)} groups."
+        )
+    if isinstance(value, pd.DataFrame):
+        return f"That gives a table of {len(value):,} rows x {value.shape[1]} columns."
+    try:
+        from matplotlib.figure import Figure
+
+        if isinstance(value, Figure):
+            return "Here it is as a figure."
+    except ImportError:
+        pass
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # a dashboard block
 # ---------------------------------------------------------------------------
@@ -162,10 +188,14 @@ def render_value(value, chart: str | None = None):
 class Block:
     """One answered question: value on the front, code on the flip side."""
 
-    def __init__(self, board: Board, result: ChatResult, question: str) -> None:
+    def __init__(
+        self, board: Board, result: ChatResult, question: str, number: int
+    ) -> None:
         self.board = board
         self.result = result
         self.question = question
+        self.number = number
+        self.fresh = True
         self.chart_choice = pn.widgets.Select(
             options=["auto", "bar", "line", "table"],
             value="auto",
@@ -191,7 +221,7 @@ class Block:
         self.panel = pn.Column(
             pn.Row(
                 pn.pane.Markdown(
-                    f"**{question}**  "
+                    f"<span style='color:#8a8f98'>#{number}</span> **{question}**  "
                     f"<span style='color:{color}'>{verdict}{tries}</span>",
                     margin=(0, 8),
                 ),
@@ -227,6 +257,7 @@ class Board:
     def __init__(self) -> None:
         self.frame = npi.read_excel(str(SAMPLE))
         self.blocks: list[Block] = []
+        self._counter = 0
 
         self.table = pn.widgets.Tabulator(
             self.frame.data,
@@ -247,11 +278,21 @@ class Board:
             callback_user="numpyai",
             show_rerun=False,
             show_undo=False,
+            show_button_name=False,
             sizing_mode="stretch_both",
+            message_params={
+                "show_reaction_icons": False,
+                "show_copy_icon": False,
+            },
+            widgets=[pn.chat.ChatAreaInput(placeholder="Ask about your data...")],
         )
+        cols = ", ".join(f"`{c}`" for c in list(self.frame.data.columns)[:6])
         self.chat.send(
-            "Ask anything about the loaded table - every answer becomes a block "
-            "on the right. Try *total revenue by region*.",
+            f"Hi! I'm looking at **{SAMPLE.name}** - {len(self.frame.data):,} rows "
+            f"with columns like {cols}.\n\n"
+            "Ask me anything about it, in plain English. Each answer gets pinned "
+            "to the board on the right, and the filters up top re-shape every "
+            "block live. I'll start with a few views to get you going.",
             user="numpyai",
             respond=False,
         )
@@ -325,9 +366,12 @@ class Board:
 
     # -- blocks ---------------------------------------------------------------
 
-    def add_block(self, result: ChatResult, question: str) -> None:
-        self.blocks.insert(0, Block(self, result, question))
+    def add_block(self, result: ChatResult, question: str) -> Block:
+        self._counter += 1
+        block = Block(self, result, question, self._counter)
+        self.blocks.insert(0, block)
         self._rebuild_grid()
+        return block
 
     def remove(self, block: Block) -> None:
         self.blocks.remove(block)
@@ -341,6 +385,9 @@ class Board:
             return
         # GridStack renders blank in testing (panel 1.9.3); FlexBox holds the
         # cards reliably. Drag/resize is a follow-up, not worth a broken board.
+        for b in self.blocks:
+            b.panel.css_classes = ["fresh-card"] if b.fresh else []
+            b.fresh = False
         self.grid_holder.height = None
         self.grid_holder.objects = [
             pn.FlexBox(*[b.panel for b in self.blocks], sizing_mode="stretch_width")
@@ -357,17 +404,34 @@ class Board:
             return "No provider API key found - set one in `examples/.env`."
         result = await self._ask(contents)
         if result.ok:
-            self.add_block(result, contents)
-            answer = pn.Column(
-                pn.pane.Markdown(f"**{result.description or 'Done.'}** - pinned →"),
+            block = self.add_block(result, contents)
+            retried = (
+                f" It took {result.attempts} attempts - the first tries were "
+                "rejected before one passed review."
+                if result.attempts > 1
+                else ""
+            )
+            text = (
+                f"{phrase_value(result.value)}{retried}\n\n"
+                f"I've pinned it as **#{block.number}** on the board, top left - "
+                "it will follow the filters."
+            )
+            return pn.Column(
+                pn.pane.Markdown(text),
                 pn.Accordion(
-                    ("code", pn.pane.Markdown(f"```python\n{result.code}\n```")),
+                    (
+                        "how I computed it",
+                        pn.pane.Markdown(f"```python\n{result.code}\n```"),
+                    ),
                     active=[],
                 ),
             )
-            return answer
         reasons = "\n".join(f"- {e}" for e in result.errors[-3:])
-        return f"Couldn't answer after {result.attempts} attempts:\n{reasons}"
+        return (
+            f"I couldn't get an answer that passed review after "
+            f"{result.attempts} attempts. Here's what went wrong:\n{reasons}\n\n"
+            "Try naming a column from the table below, or rephrasing."
+        )
 
     # -- starter dashboard ------------------------------------------------------
 
@@ -395,13 +459,23 @@ class Board:
             # Mutations from a load task need pn.io.unlocked() to be pushed
             # over the websocket; without it they sit server-side, invisible.
             with pn.io.unlocked():
-                self.status.object = f"*Building starter block: {q}*"
+                self.status.object = f"*Working on: {q}*"
             result = await self._ask(q)
             if result.ok:
                 with pn.io.unlocked():
-                    self.add_block(result, q)
+                    block = self.add_block(result, q)
+                    self.chat.send(
+                        f"**#{block.number}** *{q}* - {phrase_value(result.value)}",
+                        user="numpyai",
+                        respond=False,
+                    )
         with pn.io.unlocked():
             self.status.object = ""
+            self.chat.send(
+                "That's a starting point - what would you like to dig into?",
+                user="numpyai",
+                respond=False,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +503,15 @@ right = pn.Column(
     styles={"background": "#eef0f4", "padding": "12px", "border-radius": "12px"},
 )
 
-pn.config.raw_css.append("body { background: #e4e7ec; margin: 0; }")
+pn.config.raw_css.append("""
+body { background: #e9ecf1; margin: 0; }
+:root { --design-primary-color: #5B8FF9; }
+@keyframes cardflash {
+  0%   { box-shadow: 0 0 0 3px #5B8FF9; }
+  100% { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+}
+.fresh-card { animation: cardflash 2.2s ease-out; }
+""")
 app = pn.Row(left, right, sizing_mode="stretch_both", margin=8)
 app.servable(title="numpyai dashboard")
 
