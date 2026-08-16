@@ -262,7 +262,16 @@ class Board:
         self._counter = 0
         #: shared across the per-question frames so "explain it" has a referent
         self._chat_history: list[tuple[str, str, str]] = []
-        self._texter = NumpyCodeGen()
+        self._texter = NumpyCodeGen(
+            system_prompt=(
+                "You are a sharp, plain-spoken data analyst reading results "
+                "computed from the user's own data. Lead with the finding, "
+                "quantify it, and flag what a careful analyst would flag - "
+                "tiny leaf samples, a split on one salesperson's name, likely "
+                "overfitting, confounders. Never open with a textbook "
+                "definition; the user asked about THEIR data, not the method."
+            )
+        )
 
         self.table = pn.widgets.Tabulator(
             self.frame.data,
@@ -420,9 +429,13 @@ class Board:
                 f"The user asked: {contents}\n\n"
                 "Evidence computed directly from their data:\n"
                 f"{result.value}\n\n"
-                "Answer the user in 2-5 plain sentences grounded strictly in "
-                "this evidence. Do not invent numbers. After your answer, "
-                "include the evidence verbatim under a 'Details:' heading.",
+                "Answer as the analyst, grounded strictly in this evidence:\n"
+                "1. The headline finding, one sentence.\n"
+                "2. What drives it, with the actual numbers.\n"
+                "3. Caveats a careful analyst would raise about THIS result.\n"
+                "3-6 sentences of markdown, no headings for the answer itself. "
+                "Do not invent numbers and do not define standard methods. "
+                "Then include the evidence verbatim under 'Details:'.",
             )
             return pn.Column(
                 pn.pane.Markdown(narrated),
