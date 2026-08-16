@@ -26,13 +26,23 @@ from ._validator import NumpyValidator
 console = Console()
 
 
-def execute(code: str, data_vars: dict[str, Any], *, verbose: bool) -> tuple[Any, Any]:
+def execute(
+    code: str,
+    data_vars: dict[str, Any],
+    *,
+    verbose: bool,
+    raise_errors: bool = False,
+) -> tuple[Any, Any]:
     """Run generated code and return ``(output, metadata)``.
 
     ``data_vars`` is what the code is allowed to see beyond NumPy and the
     optional libraries: ``{"arr": ...}``, ``{"df": ...}``, or one entry per
-    array in a session. Returns ``(None, None)`` on any error, which the caller
-    treats as a failed attempt.
+    array in a session.
+
+    With ``raise_errors`` the exception propagates, which is what the retry
+    loop wants: the message becomes feedback for the next attempt, and
+    "'M' is not a valid frequency" is fixable where "returned None" is not.
+    Without it, errors collapse to ``(None, None)``.
     """
     try:
         local_vars: dict[str, Any] = {"np": np, **optional_globals(), **data_vars}
@@ -49,6 +59,8 @@ def execute(code: str, data_vars: dict[str, Any], *, verbose: bool) -> tuple[Any
         return result, explainer
 
     except Exception as e:
+        if raise_errors:
+            raise
         if verbose:
             console.print(f"[bold red]✗[/bold red] Error executing code: {e}")
         return None, None
@@ -131,7 +143,9 @@ def run_chat(
             )
             if loud:
                 console.print("[bold]Executing generated code...[/bold]")
-            result, explainer = execute(response.code, data_vars, verbose=verbose)
+            result, explainer = execute(
+                response.code, data_vars, verbose=verbose, raise_errors=True
+            )
 
             if result is None:
                 errors.append(f"Try {attempt}: Code execution returned None")

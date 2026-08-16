@@ -65,3 +65,6 @@ Thumbs.db
 scratch/
 tmp/
 *.log
+
+# Local dev-server config (machine-specific paths)
+.claude/launch.json

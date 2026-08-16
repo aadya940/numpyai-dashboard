@@ -384,8 +384,10 @@ CRITICAL INSTRUCTIONS:
 4. `df[col].to_numpy()` on a text column gives dtype=object. `np.char` and
    `np.strings` need `.astype(str)` first; comparisons and `np.isin` do not.
 5. DO NOT mutate `df`. Derive new values into `output` instead.
-6. There MUST be exactly one variable named `output` containing what was asked for.
-7. There MUST be exactly one variable named `metadata` - a short string describing
+6. Prefer vectorised operations (groupby, boolean masks, column arithmetic) over
+   Python loops over rows, groups or unique values.
+7. There MUST be exactly one variable named `output` containing what was asked for.
+8. There MUST be exactly one variable named `metadata` - a short string describing
    `output`.
 
 CORRECT EXAMPLES:

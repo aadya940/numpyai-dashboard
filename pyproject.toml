@@ -37,6 +37,7 @@ openai = ["pydantic-ai-slim[openai]>=0.0.13"]
 anthropic = ["pydantic-ai-slim[anthropic]>=0.0.13"]
 excel = ["fastexcel[pandas]>=0.20"]
 csv = ["pandas>=2.0"]
+ui = ["panel>=1.5", "fastexcel[pandas]>=0.20"]
 extras = ["matplotlib>=3.8", "scikit-learn>=1.4", "scipy>=1.11"]
 all = [
     "pydantic-ai[all]>=0.0.13",

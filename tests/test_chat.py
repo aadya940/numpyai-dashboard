@@ -107,3 +107,11 @@ def test_repr_explains_failure():
 def test_chat_rejects_a_non_string_query():
     with pytest.raises(TypeError, match="query must be a string"):
         make(PASSES).chat(42)
+
+
+def test_execution_errors_reach_the_retry_feedback():
+    """The model must see the real exception, not 'returned None'."""
+    broken = [("output = df.resample('M')\nmetadata = 'x'", "resamples", True, "")]
+    result = make(broken, max_tries=1).chat("monthly")
+    assert result.ok is False
+    assert any("df" in e and "not defined" in e for e in result.errors)
