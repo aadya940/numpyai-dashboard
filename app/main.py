@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -22,8 +23,9 @@ import panel as pn
 from dotenv import load_dotenv
 
 import numpyai_dashboard as npi
-from numpyai_dashboard._ai import ChatResult, NumpyCodeGen
-from numpyai_dashboard._engine import execute
+from numpyai_dashboard._ai import ChatResult, NumpyCodeGen, prompt_frames
+from numpyai_dashboard._engine import execute, run_chat
+from numpyai_dashboard._validator import NumpyValidator
 
 pn.extension("echarts", "tabulator", notifications=True)
 
@@ -48,6 +50,28 @@ GRIDLINES = {"splitLine": {"lineStyle": {"type": "dashed", "color": "#e2e8f0"}}}
 
 _KEY_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 HAS_KEY = any(os.getenv(v) for v in _KEY_VARS)
+
+
+def slug(stem: str) -> str:
+    """A filename stem as a Python identifier the model can reference."""
+    out = re.sub(r"\W+", "_", stem).strip("_").lower() or "table"
+    return out if not out[0].isdigit() else f"t_{out}"
+
+
+def parse_mentions(text: str, names: list[str]) -> list[str]:
+    """Resolve @tokens in ``text`` against loaded file names, fuzzily.
+
+    "@q1" matches "q1_sales"; unknown tokens are ignored rather than an error,
+    since "@ 3pm" in a question must not derail it.
+    """
+    found: list[str] = []
+    for token in re.findall(r"@([\w.\-]+)", text):
+        t = token.lower().rstrip(".")
+        for name in names:
+            if (name == t or name.startswith(t) or t in name) and name not in found:
+                found.append(name)
+                break
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +267,7 @@ class Block:
         self.question = question
         self.number = number
         self.fresh = True
+        self.source: str | None = None
         self.chart_choice = pn.widgets.Select(
             options=["auto", "bar", "line", "table"],
             value="auto",
@@ -321,12 +346,17 @@ class Block:
 
 class Board:
     def __init__(self) -> None:
-        self.frame = npi.read_excel(str(SAMPLE))
+        self.files: dict[str, npi.frame] = {
+            slug(SAMPLE.stem): npi.read_excel(str(SAMPLE))
+        }
+        self.active: str = slug(SAMPLE.stem)
         self.blocks: list[Block] = []
         self._counter = 0
         #: shared across the per-question frames so "explain it" has a referent
         self._chat_history: list[tuple[str, str, str]] = []
-        self.memory = self._make_memory(SAMPLE.stem)
+        self.memories: dict[str, object] = {self.active: self._make_memory(self.active)}
+        self.file_chips = pn.Row(margin=(0, 6))
+        self._render_chips()
         self._texter = NumpyCodeGen(
             system_prompt=(
                 "You are a sharp, plain-spoken data analyst reading results "
@@ -394,6 +424,39 @@ class Board:
         )
         self.forget_button.on_click(self._on_forget)
 
+    @property
+    def frame(self):
+        return self.files[self.active]
+
+    @property
+    def memory(self):
+        return self.memories.get(self.active)
+
+    def _render_chips(self) -> None:
+        chips = []
+        for name in self.files:
+            is_active = name == self.active
+            b = pn.widgets.Button(
+                name=f"@{name}",
+                button_type="primary" if is_active else "light",
+                height=26,
+                margin=(2, 3),
+            )
+            b.on_click(lambda _e, n=name: self.switch(n))
+            chips.append(b)
+        self.file_chips.objects = chips
+
+    def switch(self, name: str) -> None:
+        """Make ``name`` the active file: filters, table and memory follow."""
+        if name not in self.files or name == self.active:
+            return
+        self.active = name
+        self.memories.setdefault(name, self._make_memory(name))
+        self._build_filters()
+        self.table.value = self.frame.data
+        self._render_chips()
+        self.status.object = f"*Active: @{name}*"
+
     @staticmethod
     def _make_memory(dataset: str):
         """Long-term memory scoped to this dataset; optional, never fatal."""
@@ -425,12 +488,23 @@ class Board:
             fh.write(event.new)
             path = fh.name
         reader = npi.read_csv if suffix in (".csv", ".tsv") else npi.read_excel
-        self.frame = reader(path)
-        self.blocks.clear()
-        self._chat_history.clear()
-        self.memory = self._make_memory(Path(self.file_input.filename).stem)
+        name = slug(Path(self.file_input.filename).stem)
+        while name in self.files:
+            name += "_2"
+        self.files[name] = reader(path)
+        self.active = name
+        self.memories.setdefault(name, self._make_memory(name))
         self.forget_button.visible = self.memory is not None
+        self._render_chips()
         self.table.value = self.frame.data
+        cols = ", ".join(f"`{c}`" for c in list(self.frame.data.columns)[:6])
+        self.chat.send(
+            f"Loaded **{self.file_input.filename}** as **@{name}** - "
+            f"{len(self.frame.data):,} rows with {cols}. It's now the active "
+            "file; mention any file with @ to switch or compare.",
+            user="numpyai",
+            respond=False,
+        )
         self._build_filters()
         self._rebuild_grid()
         pn.state.notifications.success(f"Loaded {self.file_input.filename}")
@@ -479,14 +553,21 @@ class Board:
         df = self._filtered()
         self.table.value = df
         for block in self.blocks:
-            block.recompute(df)
+            # Filters act on the active file, so only its blocks recompute;
+            # a block pinned from another file would silently show the wrong
+            # rows if fed this frame.
+            if block.source == self.active:
+                block.recompute(df)
         self.status.object = f"*{len(df):,} of {len(self.frame.data):,} rows*"
 
     # -- blocks ---------------------------------------------------------------
 
-    def add_block(self, result: ChatResult, question: str) -> Block:
+    def add_block(
+        self, result: ChatResult, question: str, source: str | None = "active"
+    ) -> Block:
         self._counter += 1
         block = Block(self, result, question, self._counter)
+        block.source = self.active if source == "active" else source
         self.blocks.insert(0, block)
         self._rebuild_grid()
         return block
@@ -527,10 +608,39 @@ class Board:
     # -- chat -----------------------------------------------------------------
 
     async def _ask(self, question: str) -> ChatResult:
+        mentioned = parse_mentions(question, list(self.files))
+        if len(mentioned) >= 2:
+            return await asyncio.to_thread(self._multi_chat, question, mentioned)
+        if len(mentioned) == 1:
+            self.switch(mentioned[0])
         chatting = npi.frame(self._filtered(), max_tries=3)
         chatting.history = self._chat_history  # shared, mutated in place
         chatting.memory = self.memory
         return await asyncio.to_thread(chatting.chat, question)
+
+    def _multi_chat(self, question: str, names: list[str]) -> ChatResult:
+        """A question spanning several files: each mentioned frame by name."""
+        # "@q1" in the text becomes "q1" so it matches the variable names.
+        query = re.sub(r"@([\w.\-]+)", lambda m: m.group(1).lower(), question)
+        tables = {n: self.files[n].metadata for n in names}
+        result = run_chat(
+            query,
+            data_vars={n: self.files[n].data for n in names},
+            build_prompt=lambda prior: prompt_frames(
+                query=query,
+                tables=tables,
+                prior_feedback=prior,
+                history=self._chat_history,
+            ),
+            generator=self._texter,
+            validator=NumpyValidator(),
+            max_tries=3,
+            verbose=False,
+        )
+        if result.ok:
+            self._chat_history.append((query, result.code, result.description))
+            del self._chat_history[:-8]
+        return result
 
     async def _on_ask(self, contents: str, user: str, instance):
         if not HAS_KEY:
@@ -660,9 +770,10 @@ left = pn.Column(
     ),
     pn.pane.Markdown(
         "<span style='color:#9ca3af;font-size:12px'>chat with your "
-        "spreadsheet - answers pin to the board</span>",
+        "spreadsheets - @mention a file to switch or compare</span>",
         margin=(0, 14, 6, 14),
     ),
+    board.file_chips,
     board.chat,
     pn.Row(board.file_input, board.forget_button, margin=(2, 8, 6, 8)),
     width=430,

@@ -231,7 +231,7 @@ class NumpyCodeGen:
         return _run_coro(self._judge_agent.run(prompt)).output
 
 
-def _column_block(summary: dict) -> str:
+def _column_block(summary: dict, var: str = "df") -> str:
     """Render a DataFrame's column summary for the prompt."""
     lines = []
     for name, info in summary.items():
@@ -251,7 +251,7 @@ def _column_block(summary: dict) -> str:
         if info.get("nulls"):
             bits.append(f"{info['nulls']} null")
         detail = f"  ({', '.join(bits)})" if bits else ""
-        lines.append(f"    df[{name!r}]  {info.get('dtype', '')}{detail}")
+        lines.append(f"    {var}[{name!r}]  {info.get('dtype', '')}{detail}")
     return "\n".join(lines)
 
 
@@ -464,4 +464,60 @@ CORRECT EXAMPLES:
     # A single number
     output = float(df['units'].mean())
     metadata = "scalar: mean units"
+"""
+
+
+def prompt_frames(
+    query: str,
+    tables: dict[str, dict],
+    prior_feedback: str | None = None,
+    history: list[tuple[str, str, str]] | None = None,
+) -> str:
+    """Build the prompt for a question spanning several DataFrames.
+
+    ``tables`` maps variable name -> frame metadata. Each table is described
+    the way :func:`prompt_frame` describes ``df``, under the name the generated
+    code must use, so "@q1 vs @q2" questions reference `q1` and `q2` directly.
+    """
+    feedback_block = (
+        f"\nPREVIOUS ATTEMPT WAS REJECTED. Reason: {prior_feedback}\n"
+        "Correct that specific issue this time.\n"
+        if prior_feedback
+        else ""
+    )
+    names = list(tables)
+    described = "\n\n".join(
+        f"`{name}` is a pandas DataFrame with {md.get('rows', '?')} rows. "
+        f"Its columns:\n\n{_column_block(md.get('column_summary', {}), var=name)}"
+        for name, md in tables.items()
+    )
+    a, b = names[0], names[-1]
+    return f"""Generate Python code to perform the following operation:
+
+{query}
+{feedback_block}
+
+{described}
+{_history_block(history)}
+
+CRITICAL INSTRUCTIONS:
+1. The DataFrames are ALREADY defined under the names above ({", ".join(names)}).
+   DO NOT create or reload them, and do not invent columns not listed.
+2. DO NOT IMPORT anything. `pd` (pandas) and `np` (numpy) are available.
+3. Prefer vectorised operations over Python loops. To combine tables use
+   merge/concat/set operations on the listed columns.
+   If the question asks HOW to analyse or for methodology rather than a
+   computation, answer in the `advice` field instead of `code`.
+4. DO NOT mutate the DataFrames. Derive new values into `output`.
+5. There MUST be exactly one variable named `output` containing what was asked
+   for, and one named `metadata` - a short string describing `output`.
+
+CORRECT EXAMPLES:
+    # Difference in a total between two tables
+    output = float({a}['units'].sum() - {b}['units'].sum())
+    metadata = "scalar: difference in total units"
+
+    # Rows in one table but not the other, by a key column
+    output = {a}[~{a}['id'].isin({b}['id'])]
+    metadata = "DataFrame: rows of {a} whose id is absent from {b}"
 """
