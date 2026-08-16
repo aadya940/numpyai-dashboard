@@ -41,6 +41,32 @@ CARD_CSS = {
     "box-shadow": "0 1px 2px rgba(15,23,42,.05)",
     "border": "1px solid #e5e7eb",
 }
+ACCORDION_CSS = """
+.accordion { border: none !important; box-shadow: none !important;
+  background: #f8fafc; border-radius: 8px; }
+button.accordion-header { background: transparent; border: none;
+  color: #6b7280; font-size: 12px; padding: 6px 10px; font-weight: 500; }
+button.accordion-header:hover { color: #111827; }
+"""
+
+DROPPER_CSS = """
+.filepond--root { margin-bottom: 0; }
+.filepond--panel-root { background: #f8fafc; border: 1px dashed #d1d5db;
+  border-radius: 10px; }
+.filepond--drop-label, .filepond--drop-label label {
+  color: #9ca3af; font-size: 12.5px; }
+"""
+
+TABLE_CSS = """
+.tabulator { border: none; background: transparent; }
+.tabulator .tabulator-header { border-bottom: 1px solid #e5e7eb;
+  background: transparent; }
+.tabulator .tabulator-header .tabulator-col { background: transparent; }
+.tabulator-col-title { font-size: 12px; color: #6b7280; font-weight: 600; }
+.tabulator-row { font-size: 12.5px; color: #1f2937; }
+.tabulator-row.tabulator-row-even { background: #fafbfc; }
+"""
+
 AXIS = {
     "axisLine": {"show": False},
     "axisTick": {"show": False},
@@ -175,7 +201,9 @@ def render_value(value, chart: str | None = None):
             page_size=8,
             height=260,
             disabled=True,
+            show_index=False,
             sizing_mode="stretch_width",
+            stylesheets=[TABLE_CSS],
         )
 
     if isinstance(value, dict):
@@ -307,6 +335,7 @@ class Block:
             ("code", pn.pane.Markdown(f"```python\n{result.code}\n```")),
             active=[],
             sizing_mode="stretch_width",
+            stylesheets=[ACCORDION_CSS],
         )
         self.panel = pn.Column(
             pn.Row(
@@ -374,7 +403,9 @@ class Board:
             page_size=10,
             height=300,
             disabled=True,
+            show_index=False,
             sizing_mode="stretch_width",
+            stylesheets=[TABLE_CSS],
         )
         self.grid_holder = pn.Column(sizing_mode="stretch_width")
         self.filters = pn.Row(sizing_mode="stretch_width")
@@ -392,6 +423,8 @@ class Board:
             message_params={
                 "show_reaction_icons": False,
                 "show_copy_icon": False,
+                "show_avatar": False,
+                "show_timestamp": False,
             },
             widgets=[pn.chat.ChatAreaInput(placeholder="Ask about your data...")],
         )
@@ -420,14 +453,18 @@ class Board:
             accepted_filetypes=[".xlsx", ".xls", ".xlsb", ".ods", ".csv", ".tsv"],
             multiple=True,
             max_file_size="500MB",
-            height=90,
+            height=76,
             sizing_mode="stretch_width",
+            stylesheets=[DROPPER_CSS],
         )
         self.file_input.param.watch(self._on_upload, "value")
 
         self.forget_button = pn.widgets.Button(
-            name="Forget this dataset's memory",
+            name="Forget memory",
             button_type="light",
+            width=118,
+            height=30,
+            align="center",
             visible=self.memory is not None,
         )
         self.forget_button.on_click(self._on_forget)
@@ -579,7 +616,7 @@ class Board:
         for name, info in summary.items():
             if info.get("kind") == "text" and "categories" in info:
                 w = pn.widgets.MultiChoice(
-                    name=name, options=info["categories"], width=190
+                    name=name, options=info["categories"], width=168, margin=(0, 4)
                 )
                 self._filter_widgets.append((name, "cat", w))
                 widgets.append(w)
@@ -590,7 +627,8 @@ class Board:
                     start=col.min(),
                     end=col.max(),
                     value=(col.min(), col.max()),
-                    width=260,
+                    width=230,
+                    margin=(0, 8),
                 )
                 self._filter_widgets.append((name, "date", w))
                 widgets.append(w)
@@ -739,6 +777,7 @@ class Board:
                         pn.pane.Markdown(f"```python\n{result.code}\n```"),
                     ),
                     active=[],
+                    stylesheets=[ACCORDION_CSS],
                 ),
             )
         if result.ok:
@@ -780,6 +819,7 @@ class Board:
                         pn.pane.Markdown(f"```python\n{result.code}\n```"),
                     ),
                     active=[],
+                    stylesheets=[ACCORDION_CSS],
                 ),
             )
         reasons = "\n".join(f"- {e}" for e in result.errors[-3:])
