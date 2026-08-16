@@ -490,18 +490,24 @@ class Board:
 
     # -- data ---------------------------------------------------------------
 
-    def _on_upload(self, event) -> None:
+    async def _on_upload(self, event) -> None:
         for filename, payload in (event.new or {}).items():
             suffix = Path(filename).suffix or ".xlsx"
+            # FileDropper hands text files over as str and binary as bytes.
+            data = payload.encode() if isinstance(payload, str) else payload
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
-                fh.write(payload)
+                fh.write(data)
                 path = fh.name
             reader = npi.read_csv if suffix in (".csv", ".tsv") else npi.read_excel
             name = slug(Path(filename).stem)
             while name in self.files:
                 name += "_2"
+            self.status.object = f"*Reading {filename}...*"
             try:
-                self.files[name] = reader(path)
+                # Parsing a large file on the event loop blocks the websocket
+                # heartbeat until Tornado gives up on the session - the reader
+                # must run in a thread, however fast it usually is.
+                self.files[name] = await asyncio.to_thread(reader, path)
             except Exception as exc:
                 self.chat.send(
                     f"Couldn't read **{filename}**: {exc}",
@@ -510,7 +516,9 @@ class Board:
                 )
                 continue
             self.active = name
-            self.memories.setdefault(name, self._make_memory(name))
+            self.memories.setdefault(
+                name, await asyncio.to_thread(self._make_memory, name)
+            )
             cols = ", ".join(f"`{c}`" for c in list(self.frame.data.columns)[:6])
             self.chat.send(
                 f"Loaded **{filename}** as **@{name}** - "
@@ -524,6 +532,7 @@ class Board:
         self.table.value = self.frame.data
         self._build_filters()
         self._rebuild_grid()
+        self.status.object = ""
 
     def _build_filters(self) -> None:
         """One widget per low-cardinality text column, plus a date range."""
