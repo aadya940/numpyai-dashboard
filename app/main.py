@@ -147,7 +147,7 @@ def _echarts_spec(series: pd.Series) -> dict:
     }
 
 
-def render_value(value, chart: str | None = None):
+def render_value(value, chart: str | None = None, on_click=None):
     """Pick a pane for whatever the generated code produced."""
     if isinstance(value, pd.Series) and np.issubdtype(
         np.asarray(value.to_numpy()).dtype, np.number
@@ -159,9 +159,12 @@ def render_value(value, chart: str | None = None):
         spec = _echarts_spec(value)
         if chart in ("bar", "line"):
             spec["series"][0]["type"] = chart
-        return pn.pane.ECharts(
+        pane = pn.pane.ECharts(
             spec, height=260, sizing_mode="stretch_width", theme="light"
         )
+        if on_click is not None:
+            pane.on_event("click", on_click)
+        return pane
 
     if isinstance(value, pd.DataFrame):
         # Two numeric columns is an (x, y) relationship - frequency/amplitude,
@@ -328,7 +331,7 @@ class Block:
         )
         dismiss.on_click(lambda _: board.remove(self))
 
-        self._body = pn.Column(sizing_mode="stretch_width")
+        self._body = pn.Column(sizing_mode="stretch_width", min_height=260)
         self._redraw()
 
         code_view = pn.Accordion(
@@ -358,7 +361,15 @@ class Block:
 
     def _redraw(self) -> None:
         chart = None if self.chart_choice.value == "auto" else self.chart_choice.value
-        self._body.objects = [render_value(self.result.value, chart)]
+        self._body.objects = [
+            render_value(self.result.value, chart, on_click=self._on_chart_click)
+        ]
+
+    def _on_chart_click(self, event) -> None:
+        data = getattr(event, "data", None) or {}
+        label = data.get("name")
+        if label:
+            self.board.drill(str(label), self)
 
     def recompute(self, df: pd.DataFrame) -> None:
         """Re-run this block's stored code against (filtered) rows. No LLM."""
@@ -408,6 +419,21 @@ class Board:
             stylesheets=[TABLE_CSS],
         )
         self.grid_holder = pn.Column(sizing_mode="stretch_width")
+        self.board_caption = pn.pane.Markdown(margin=(10, 14, 0, 6))
+        clear = pn.widgets.Button(
+            name="Clear board",
+            button_type="light",
+            height=26,
+            align="center",
+            margin=(6, 6, 0, 0),
+        )
+        clear.on_click(lambda _e: self.clear_board())
+        self.board_header = pn.Row(
+            self.board_caption,
+            pn.Spacer(sizing_mode="stretch_width"),
+            clear,
+            sizing_mode="stretch_width",
+        )
         self.filters = pn.Row(sizing_mode="stretch_width")
         self.status = pn.pane.Markdown("", margin=(0, 8))
         self._build_filters()
@@ -660,6 +686,33 @@ class Board:
                 block.recompute(df)
         self.status.object = f"*{len(df):,} of {len(self.frame.data):,} rows*"
 
+    def drill(self, label: str, block: Block) -> None:
+        """A clicked chart element becomes a board-wide filter, or a question.
+
+        Priority: a category filter that knows this label filters the whole
+        board instantly and reversibly. A month-shaped label narrows the date
+        range. Anything else drafts a drill question into the chat input, so
+        the model call stays under the user's control.
+        """
+        for name, kind, w in self._filter_widgets:
+            if kind == "cat" and label in w.options:
+                w.value = [] if w.value == [label] else [label]  # click twice to clear
+                return
+        month = re.match(r"^(\d{4})-(\d{2})", label)
+        if month:
+            for name, kind, w in self._filter_widgets:
+                if kind == "date":
+                    start = pd.Timestamp(int(month.group(1)), int(month.group(2)), 1)
+                    end = start + pd.offsets.MonthEnd(1)
+                    lo, hi = w.start, w.end
+                    w.value = (max(pd.Timestamp(lo), start), min(pd.Timestamp(hi), end))
+                    return
+        widget = self.chat.active_widget
+        if widget is not None:
+            # value_input prefills without submitting; .value would auto-send
+            # and spend a model call the user never asked for.
+            widget.value_input = f"Drill into {label}: {block.question}"
+
     # -- blocks ---------------------------------------------------------------
 
     def add_block(
@@ -676,7 +729,18 @@ class Board:
         self.blocks.remove(block)
         self._rebuild_grid()
 
+    def clear_board(self) -> None:
+        self.blocks.clear()
+        self._rebuild_grid()
+
     def _rebuild_grid(self) -> None:
+        n = len(self.blocks)
+        self.board_caption.object = (
+            f"<span style='font-weight:600;font-size:13.5px;color:#111827'>"
+            f"Board</span> <span style='color:#9ca3af;font-size:12px'>"
+            f"{n} block{'s' if n != 1 else ''} - click a bar or point to "
+            f"filter</span>"
+        )
         if not self.blocks:
             self.grid_holder.objects = [
                 pn.pane.Markdown(
@@ -928,6 +992,7 @@ data_card = pn.Column(
 
 right = pn.Column(
     filter_bar,
+    board.board_header,
     board.grid_holder,
     data_card,
     sizing_mode="stretch_both",
