@@ -193,3 +193,54 @@ def test_history_is_bounded(sales):
 def test_no_history_block_when_empty(sales):
     prompt = prompt_frame("x", frame(sales).metadata, history=[])
     assert "EARLIER IN THIS CONVERSATION" not in prompt
+
+
+# --------------------------------------------------------------------------
+# long-term memory (duck-typed; mem0 itself is not needed here)
+# --------------------------------------------------------------------------
+
+
+class FakeMemory:
+    def __init__(self, canned):
+        self.canned = canned
+        self.remembered = []
+
+    def recall(self, query, k=5):
+        return self.canned
+
+    def remember(self, question, answer):
+        self.remembered.append((question, answer))
+
+
+def test_recalled_memories_reach_the_prompt(sales):
+    f = make(sales, GROUPBY)
+    f.memory = FakeMemory(["The user prefers revenue net of discount."])
+    f.chat("units by region")
+    prompt = f._code_generator.last_prompt
+    assert "REMEMBERED FROM EARLIER SESSIONS" in prompt
+    assert "net of discount" in prompt
+    assert "recompute from `df` any number you state" in prompt
+
+
+def test_successful_turns_are_remembered_long_term(sales):
+    f = make(sales, GROUPBY)
+    f.memory = FakeMemory([])
+    f.chat("units by region")
+    assert len(f.memory.remembered) == 1
+    question, answer = f.memory.remembered[0]
+    assert question == "units by region"
+    assert "units per region" in answer
+
+
+def test_failed_turns_are_not_remembered_long_term(sales):
+    rejected = [("output = df['units'].min()\nmetadata = 'm'", "min", False, "wrong")]
+    f = make(sales, rejected * 3)
+    f.memory = FakeMemory([])
+    f.chat("max units")
+    assert f.memory.remembered == []
+
+
+def test_no_memories_block_without_memory(sales):
+    f = make(sales, GROUPBY)
+    f.chat("units by region")
+    assert "REMEMBERED FROM EARLIER SESSIONS" not in f._code_generator.last_prompt

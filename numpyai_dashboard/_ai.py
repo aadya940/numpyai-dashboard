@@ -374,11 +374,25 @@ def _history_block(history: list[tuple[str, str, str]] | None) -> str:
     )
 
 
+def _memories_block(memories: list[str] | None) -> str:
+    """Render long-term memories as context that must not replace computation."""
+    if not memories:
+        return ""
+    lines = "\n".join(f"- {m}" for m in memories[:6])
+    return (
+        "\nREMEMBERED FROM EARLIER SESSIONS (context - possibly stale):\n"
+        f"{lines}\n"
+        "Use these for preferences and pointers only. The data may have changed\n"
+        "since they were written: recompute from `df` any number you state.\n"
+    )
+
+
 def prompt_frame(
     query: str,
     metadata: dict,
     prior_feedback: str | None = None,
     history: list[tuple[str, str, str]] | None = None,
+    memories: list[str] | None = None,
 ) -> str:
     """Build the code-generation prompt for a DataFrame-backed query."""
     feedback_block = (
@@ -388,6 +402,7 @@ def prompt_frame(
         else ""
     )
     history_block = _history_block(history)
+    memories_block = _memories_block(memories)
     return f"""Generate Python code to perform the following operation:
 
 {query}
@@ -396,7 +411,7 @@ def prompt_frame(
 `df` is a pandas DataFrame with {metadata.get("rows", "?")} rows. Its columns:
 
 {_column_block(metadata.get("column_summary", {}))}
-{history_block}
+{history_block}{memories_block}
 
 CRITICAL INSTRUCTIONS:
 1. The DataFrame is ALREADY defined as `df`. DO NOT create or reload it, and do

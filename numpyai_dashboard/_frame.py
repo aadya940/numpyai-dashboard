@@ -64,6 +64,10 @@ class frame:
         #: (question, code, description) per successful turn, oldest first.
         #: Rendered into the prompt so follow-ups like "explain it" resolve.
         self.history: list[tuple[str, str, str]] = []
+        #: Optional long-term memory. Anything with ``recall(query) -> list[str]``
+        #: and ``remember(question, answer)`` works;
+        #: :class:`numpyai_dashboard.AgentMemory` is the mem0-backed one.
+        self.memory = None
 
     # ------------------------------------------------------------------
     # pandas interop
@@ -124,6 +128,7 @@ class frame:
         """
         self.current_prompt = query
         metadata = self.metadata
+        memories = self.memory.recall(query) if self.memory is not None else None
         result = run_chat(
             query,
             data_vars={"df": self._data, "pd": _pandas()},
@@ -132,6 +137,7 @@ class frame:
                 metadata=metadata,
                 prior_feedback=prior,
                 history=self.history,
+                memories=memories,
             ),
             generator=self._code_generator,
             validator=self._validator,
@@ -141,6 +147,12 @@ class frame:
         if result.ok:
             self.history.append((query, result.code, result.description))
             del self.history[:-8]
+            if self.memory is not None:
+                summary = result.description or ""
+                preview = str(result.value)
+                if len(preview) > 300:
+                    preview = preview[:300] + " ..."
+                self.memory.remember(query, f"{summary}. Result: {preview}")
         return result
 
 

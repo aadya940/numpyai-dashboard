@@ -19,12 +19,14 @@ class FakeCodeGen:
     def __init__(self, script):
         self.script = script
         self.calls = 0
+        self.last_prompt = ""
 
     @staticmethod
     def prompt_single(**kwargs):
         return "prompt"
 
     def generate_code(self, prompt):
+        self.last_prompt = prompt
         code, explanation, _, _ = self.script[min(self.calls, len(self.script) - 1)]
         return CodeResponse(code=code, explanation=explanation)
 

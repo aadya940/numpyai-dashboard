@@ -262,6 +262,7 @@ class Board:
         self._counter = 0
         #: shared across the per-question frames so "explain it" has a referent
         self._chat_history: list[tuple[str, str, str]] = []
+        self.memory = self._make_memory(SAMPLE.stem)
         self._texter = NumpyCodeGen(
             system_prompt=(
                 "You are a sharp, plain-spoken data analyst reading results "
@@ -306,7 +307,13 @@ class Board:
             f"with columns like {cols}.\n\n"
             "Ask me anything about it, in plain English. Each answer gets pinned "
             "to the board on the right, and the filters up top re-shape every "
-            "block live. I'll start with a few views to get you going.",
+            "block live."
+            + (
+                " I also remember our past sessions on this dataset."
+                if self.memory
+                else ""
+            )
+            + " I'll start with a few views to get you going.",
             user="numpyai",
             respond=False,
         )
@@ -315,6 +322,16 @@ class Board:
             accept=".xlsx,.xls,.xlsb,.ods,.csv,.tsv", multiple=False
         )
         self.file_input.param.watch(self._on_upload, "value")
+
+    @staticmethod
+    def _make_memory(dataset: str):
+        """Long-term memory scoped to this dataset; optional, never fatal."""
+        if not HAS_KEY:
+            return None
+        try:
+            return npi.AgentMemory(user_id=dataset)
+        except Exception:
+            return None
 
     # -- data ---------------------------------------------------------------
 
@@ -327,6 +344,7 @@ class Board:
         self.frame = reader(path)
         self.blocks.clear()
         self._chat_history.clear()
+        self.memory = self._make_memory(Path(self.file_input.filename).stem)
         self.table.value = self.frame.data
         self._build_filters()
         self._rebuild_grid()
@@ -413,6 +431,7 @@ class Board:
     async def _ask(self, question: str) -> ChatResult:
         chatting = npi.frame(self._filtered(), max_tries=3)
         chatting.history = self._chat_history  # shared, mutated in place
+        chatting.memory = self.memory
         return await asyncio.to_thread(chatting.chat, question)
 
     async def _on_ask(self, contents: str, user: str, instance):
