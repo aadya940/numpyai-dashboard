@@ -148,11 +148,14 @@ def run_chat(
     validator: NumpyValidator,
     max_tries: int,
     verbose: bool,
+    context: str = "",
 ) -> ChatResult:
     """Answer ``query``, retrying until the judge accepts or attempts run out.
 
     ``build_prompt`` takes the previous rejection reason, or None on the first
     attempt, so each retry can tell the model what went wrong last time.
+    ``context`` is a compact rendering of recent turns, shown to the judge so
+    follow-up queries are reviewed in the conversation they belong to.
     """
     if not isinstance(query, str):
         raise TypeError("query must be a string")
@@ -207,7 +210,10 @@ def run_chat(
                 continue
 
             judgment = generator.judge(
-                query=query, code=response.code, metadata=str(explainer or "")
+                query=query,
+                code=response.code,
+                metadata=str(explainer or ""),
+                context=context,
             )
             last_judgment = judgment
             if loud:

@@ -801,6 +801,10 @@ class Board:
             validator=NumpyValidator(),
             max_tries=3,
             verbose=False,
+            context="\n".join(
+                f"- asked: {q}  ->  {d or 'answered'}"
+                for q, _c, d in self._chat_history[-6:]
+            ),
         )
         if result.ok:
             self._chat_history.append((query, result.code, result.description))

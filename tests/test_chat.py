@@ -30,7 +30,8 @@ class FakeCodeGen:
         code, explanation, _, _ = self.script[min(self.calls, len(self.script) - 1)]
         return CodeResponse(code=code, explanation=explanation)
 
-    def judge(self, query, code, metadata):
+    def judge(self, query, code, metadata, context=""):
+        self.last_context = context
         _, _, accepted, reason = self.script[min(self.calls, len(self.script) - 1)]
         self.calls += 1
         return Judgment(interprets_query_correctly=accepted, reason=reason)

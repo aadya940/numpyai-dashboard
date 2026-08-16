@@ -265,7 +265,7 @@ class AdviceGen:
         self.last_prompt = prompt
         return CodeResponse(code="", advice=self.advice, explanation="advises")
 
-    def judge(self, query, code, metadata):  # pragma: no cover - must not run
+    def judge(self, query, code, metadata, context=""):  # pragma: no cover
         self.judged = True
         raise AssertionError("advice must not reach the judge")
 
@@ -287,3 +287,14 @@ def test_advice_turns_are_remembered_in_history(sales):
     f._code_generator = AdviceGen("Look at `units` first.")
     f.chat("where to start?")
     assert f.history[0][0] == "where to start?"
+
+
+
+def test_judge_sees_the_conversation(sales):
+    """'Do the first one' must be reviewed inside the conversation: the
+    generator resolves it through history, and a context-blind judge then
+    rejects the correct code as unrelated to a vague query."""
+    f = make(sales, GROUPBY * 2)
+    f.chat("units by region")
+    f.chat("now do the first one again")
+    assert "units by region" in f._code_generator.last_context

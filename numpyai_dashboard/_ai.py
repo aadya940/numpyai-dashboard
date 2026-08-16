@@ -216,17 +216,30 @@ class NumpyCodeGen:
         result = _run_coro(self._text_agent.run(prompt))
         return result.output
 
-    def judge(self, query: str, code: str, metadata: str) -> Judgment:
+    def judge(
+        self, query: str, code: str, metadata: str, context: str = ""
+    ) -> Judgment:
         """Classify whether ``code`` correctly interprets ``query``.
 
-        Structured yes/no output only - no code generation, no math.
+        ``context`` carries recent conversation turns. Without it, a follow-up
+        like "do the first one" is judged in a vacuum: the generator resolves
+        the reference through history and the judge then rejects the correct
+        code as unrelated to a "vague" query.
         """
+        context_block = (
+            f"CONVERSATION SO FAR (the query may refer back to this):\n"
+            f"{context}\n\n"
+            if context
+            else ""
+        )
         prompt = (
+            f"{context_block}"
             f"USER QUERY:\n{query}\n\n"
             f"GENERATED CODE (defines `output`):\n{code}\n\n"
             f"AUTHOR'S DESCRIPTION OF `output`:\n{metadata}\n\n"
-            "Question: does this code compute what the query asks for? "
-            "Answer via the structured output. Do NOT recompute the answer."
+            "Question: does this code compute what the query asks for, read in "
+            "the context of the conversation? Answer via the structured "
+            "output. Do NOT recompute the answer."
         )
         return _run_coro(self._judge_agent.run(prompt)).output
 
@@ -446,6 +459,10 @@ CRITICAL INSTRUCTIONS:
    If the question asks HOW to analyse, what to explore, or for methodology
    rather than a computation, answer in the `advice` field instead of `code`:
    concrete suggestions naming the actual columns above, no code at all.
+   But when the user says to proceed - "do it", "do the first one", "all of
+   that" - that refers to the conversation above: compute it now with `code`.
+   For several related results, return a dict of labelled outputs. Never ask
+   the user to pick one at a time.
 7. There MUST be exactly one variable named `output` containing what was asked for.
    If the user asked for a plot, `output` must be the Figure itself
    (`output = plt.gcf()`) - a plot drawn as a side effect is discarded.

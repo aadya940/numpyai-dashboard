@@ -129,6 +129,11 @@ class frame:
         self.current_prompt = query
         metadata = self.metadata
         memories = self.memory.recall(query) if self.memory is not None else None
+        # The judge reviews follow-ups inside the conversation, not in a
+        # vacuum; descriptions suffice - it judges intent, not implementation.
+        context = "\n".join(
+            f"- asked: {q}  ->  {d or 'answered'}" for q, _c, d in self.history[-6:]
+        )
         result = run_chat(
             query,
             data_vars={"df": self._data, "pd": _pandas()},
@@ -143,6 +148,7 @@ class frame:
             validator=self._validator,
             max_tries=self.MAX_TRIES,
             verbose=self.verbose,
+            context=context,
         )
         if result.ok:
             self.history.append((query, result.code, result.description))
