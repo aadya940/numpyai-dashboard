@@ -387,6 +387,8 @@ CRITICAL INSTRUCTIONS:
 6. Prefer vectorised operations (groupby, boolean masks, column arithmetic) over
    Python loops over rows, groups or unique values.
 7. There MUST be exactly one variable named `output` containing what was asked for.
+   If the user asked for a plot, `output` must be the Figure itself
+   (`output = plt.gcf()`) - a plot drawn as a side effect is discarded.
 8. There MUST be exactly one variable named `metadata` - a short string describing
    `output`.
 

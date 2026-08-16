@@ -85,6 +85,37 @@ def render_value(value, chart: str | None = None):
         )
 
     if isinstance(value, pd.DataFrame):
+        # Two numeric columns is an (x, y) relationship - frequency/amplitude,
+        # size/price - and reads as a curve, not 400 rows of a table.
+        numeric = value.select_dtypes("number")
+        if (
+            chart != "table"
+            and value.shape[1] == 2
+            and numeric.shape[1] == 2
+            and 1 < len(value) <= 5000
+        ):
+            x, y = value.columns
+            spec = {
+                "color": PALETTE,
+                "tooltip": {"trigger": "axis"},
+                "grid": {"left": 60, "right": 16, "top": 16, "bottom": 40},
+                "xAxis": {"type": "value", "name": str(x)},
+                "yAxis": {"type": "value", "name": str(y)},
+                "series": [
+                    {
+                        "type": "bar" if chart == "bar" else "line",
+                        "showSymbol": len(value) <= 50,
+                        "data": [
+                            [float(a), float(b)]
+                            for a, b in zip(value[x], value[y], strict=True)
+                            if pd.notna(a) and pd.notna(b)
+                        ],
+                    }
+                ],
+            }
+            return pn.pane.ECharts(
+                spec, height=260, sizing_mode="stretch_width", theme="light"
+            )
         return pn.widgets.Tabulator(
             value,
             pagination="remote" if len(value) > 10_000 else None,

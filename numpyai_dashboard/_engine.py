@@ -49,6 +49,7 @@ def execute(
         exec(code, {"__builtins__": __builtins__}, local_vars)
         result = local_vars.get("output")
         explainer = local_vars.get("metadata")
+        result = _collect_stray_figures(local_vars.get("plt"), result)
 
         if verbose:
             if result is not None:
@@ -64,6 +65,31 @@ def execute(
         if verbose:
             console.print(f"[bold red]✗[/bold red] Error executing code: {e}")
         return None, None
+
+
+def _collect_stray_figures(plt, result):
+    """Deal with figures the generated code drew but never assigned.
+
+    Models often plot as a side effect (``plt.plot(...)``) while assigning
+    something else to ``output``. pyplot keeps a global reference to every such
+    figure, so they leak in a long-running server; and if ``output`` was never
+    set, the figure IS the answer. So: adopt the figure when there is nothing
+    better, and close pyplot's registry either way.
+    """
+    if plt is None:
+        return result
+    try:
+        fignums = plt.get_fignums()
+        if not fignums:
+            return result
+        if result is None:
+            result = plt.figure(fignums[-1])
+        # Drop pyplot's global references. An adopted figure stays alive
+        # through `result`; rendering does not need the registry.
+        plt.close("all")
+        return result
+    except Exception:
+        return result
 
 
 def _print_judgment(j: Judgment) -> None:

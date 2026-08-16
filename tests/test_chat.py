@@ -115,3 +115,27 @@ def test_execution_errors_reach_the_retry_feedback():
     result = make(broken, max_tries=1).chat("monthly")
     assert result.ok is False
     assert any("df" in e and "not defined" in e for e in result.errors)
+
+
+def test_stray_figure_is_adopted_when_output_is_missing():
+    plt = pytest.importorskip("matplotlib.pyplot")
+    from matplotlib.figure import Figure
+
+    from numpyai_dashboard._engine import execute
+
+    code = "plt.figure()\nplt.plot([1, 2, 3])\nmetadata = 'a plot'"
+    value, _ = execute(code, {}, verbose=False)
+    assert isinstance(value, Figure)
+    assert plt.get_fignums() == []
+
+
+def test_stray_figure_is_closed_when_output_is_set():
+    """Side-effect plots must not leak in pyplot's global registry."""
+    plt = pytest.importorskip("matplotlib.pyplot")
+
+    from numpyai_dashboard._engine import execute
+
+    code = "plt.figure()\nplt.plot([1, 2])\noutput = 42\nmetadata = 'x'"
+    value, _ = execute(code, {}, verbose=False)
+    assert value == 42
+    assert plt.get_fignums() == []
