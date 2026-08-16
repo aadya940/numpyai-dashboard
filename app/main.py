@@ -27,7 +27,7 @@ from numpyai_dashboard._ai import ChatResult, NumpyCodeGen, prompt_frames
 from numpyai_dashboard._engine import execute, run_chat
 from numpyai_dashboard._validator import NumpyValidator
 
-pn.extension("echarts", "tabulator", notifications=True)
+pn.extension("echarts", "tabulator", "filedropper", notifications=True)
 
 REPO = Path(__file__).resolve().parent.parent
 load_dotenv(REPO / "examples" / ".env")
@@ -412,8 +412,16 @@ class Board:
             respond=False,
         )
 
-        self.file_input = pn.widgets.FileInput(
-            accept=".xlsx,.xls,.xlsb,.ods,.csv,.tsv", multiple=False
+        # FileDropper uploads in chunks. FileInput pushes the whole file
+        # through one websocket message, and anything past Tornado's 20MB
+        # cap kills the connection - which reads as "server connection lost"
+        # the moment a real spreadsheet is dropped.
+        self.file_input = pn.widgets.FileDropper(
+            accepted_filetypes=[".xlsx", ".xls", ".xlsb", ".ods", ".csv", ".tsv"],
+            multiple=True,
+            max_file_size="500MB",
+            height=90,
+            sizing_mode="stretch_width",
         )
         self.file_input.param.watch(self._on_upload, "value")
 
@@ -483,31 +491,39 @@ class Board:
     # -- data ---------------------------------------------------------------
 
     def _on_upload(self, event) -> None:
-        suffix = Path(self.file_input.filename or "upload.xlsx").suffix
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
-            fh.write(event.new)
-            path = fh.name
-        reader = npi.read_csv if suffix in (".csv", ".tsv") else npi.read_excel
-        name = slug(Path(self.file_input.filename).stem)
-        while name in self.files:
-            name += "_2"
-        self.files[name] = reader(path)
-        self.active = name
-        self.memories.setdefault(name, self._make_memory(name))
+        for filename, payload in (event.new or {}).items():
+            suffix = Path(filename).suffix or ".xlsx"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
+                fh.write(payload)
+                path = fh.name
+            reader = npi.read_csv if suffix in (".csv", ".tsv") else npi.read_excel
+            name = slug(Path(filename).stem)
+            while name in self.files:
+                name += "_2"
+            try:
+                self.files[name] = reader(path)
+            except Exception as exc:
+                self.chat.send(
+                    f"Couldn't read **{filename}**: {exc}",
+                    user="numpyai",
+                    respond=False,
+                )
+                continue
+            self.active = name
+            self.memories.setdefault(name, self._make_memory(name))
+            cols = ", ".join(f"`{c}`" for c in list(self.frame.data.columns)[:6])
+            self.chat.send(
+                f"Loaded **{filename}** as **@{name}** - "
+                f"{len(self.frame.data):,} rows with {cols}. It's now the "
+                "active file; mention any file with @ to switch or compare.",
+                user="numpyai",
+                respond=False,
+            )
         self.forget_button.visible = self.memory is not None
         self._render_chips()
         self.table.value = self.frame.data
-        cols = ", ".join(f"`{c}`" for c in list(self.frame.data.columns)[:6])
-        self.chat.send(
-            f"Loaded **{self.file_input.filename}** as **@{name}** - "
-            f"{len(self.frame.data):,} rows with {cols}. It's now the active "
-            "file; mention any file with @ to switch or compare.",
-            user="numpyai",
-            respond=False,
-        )
         self._build_filters()
         self._rebuild_grid()
-        pn.state.notifications.success(f"Loaded {self.file_input.filename}")
 
     def _build_filters(self) -> None:
         """One widget per low-cardinality text column, plus a date range."""

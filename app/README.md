@@ -10,7 +10,7 @@ against the filtered rows without another model call.
 ```sh
 pip install -e ".[ui,google]"
 export GEMINI_API_KEY=...        # or put it in examples/.env
-panel serve app/main.py --show
+panel serve app/main.py --show --websocket-max-message-size 524288000
 ```
 
 Loads `examples/sample_sales.xlsx` by default; upload any `.xlsx`, `.xls`,
