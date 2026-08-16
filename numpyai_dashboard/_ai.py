@@ -387,9 +387,10 @@ def _history_block(history: list[tuple[str, str, str]] | None) -> str:
     lines = []
     for question, code, description in history[-6:]:
         snippet = code if len(code) <= 400 else code[:400] + " ..."
+        desc = description if len(description) <= 600 else description[:600] + " ..."
         lines.append(
-            f"- asked: {question}\n  ran: {snippet}\n"
-            f"  result: {description or '(no description)'}"
+            f"- asked: {question}\n  ran: {snippet or '(advice, no code)'}\n"
+            f"  result: {desc or '(no description)'}"
         )
     return (
         "\nEARLIER IN THIS CONVERSATION (oldest first):\n"

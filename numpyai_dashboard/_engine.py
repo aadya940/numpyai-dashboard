@@ -185,7 +185,10 @@ def run_chat(
                 return ChatResult(
                     value=response.advice,
                     code="",
-                    description="advisory answer",
+                    # The advice IS the description: history renders this
+                    # field, and "do all of that" two turns later needs the
+                    # content, not a label saying content existed.
+                    description=response.advice,
                     judgment=Judgment(
                         interprets_query_correctly=True,
                         reason="advisory answer - nothing to execute",
