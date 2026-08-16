@@ -323,6 +323,13 @@ class Board:
         )
         self.file_input.param.watch(self._on_upload, "value")
 
+        self.forget_button = pn.widgets.Button(
+            name="Forget this dataset's memory",
+            button_type="light",
+            visible=self.memory is not None,
+        )
+        self.forget_button.on_click(self._on_forget)
+
     @staticmethod
     def _make_memory(dataset: str):
         """Long-term memory scoped to this dataset; optional, never fatal."""
@@ -332,6 +339,19 @@ class Board:
             return npi.AgentMemory(user_id=dataset)
         except Exception:
             return None
+
+    def _on_forget(self, _event) -> None:
+        if self.memory is None:
+            return
+        count = self.memory.forget()
+        self._chat_history.clear()
+        pn.state.notifications.info(f"Forgot {count} memories for this dataset.")
+        self.chat.send(
+            f"Done - I've forgotten everything I knew about this dataset "
+            f"({count} memories) and this conversation. Clean slate.",
+            user="numpyai",
+            respond=False,
+        )
 
     # -- data ---------------------------------------------------------------
 
@@ -345,6 +365,7 @@ class Board:
         self.blocks.clear()
         self._chat_history.clear()
         self.memory = self._make_memory(Path(self.file_input.filename).stem)
+        self.forget_button.visible = self.memory is not None
         self.table.value = self.frame.data
         self._build_filters()
         self._rebuild_grid()
@@ -549,7 +570,7 @@ board = Board()
 
 left = pn.Column(
     pn.pane.Markdown("## numpyai dashboard", margin=(4, 8)),
-    board.file_input,
+    pn.Row(board.file_input, board.forget_button),
     board.chat,
     width=420,
     styles={"background": "#f4f4f6", "padding": "8px", **CARD_CSS},

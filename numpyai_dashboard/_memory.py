@@ -20,6 +20,48 @@ from typing import Any
 
 _DEFAULT_DIR = Path.home() / ".numpyai_dashboard" / "memory"
 
+#: One shared backend for the default config. Embedded Qdrant permits a single
+#: client per storage path, so every AgentMemory in this process must reuse it -
+#: a second instance would not degrade, it would raise. Cross-process stays a
+#: hard limit of the embedded store: close other users of the default path, or
+#: point `config` at a Qdrant server for concurrent access.
+_shared_backend = None
+_shared_lock = threading.Lock()
+
+
+def _default_backend():
+    global _shared_backend
+    from mem0 import Memory
+
+    with _shared_lock:
+        if _shared_backend is None:
+            _DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
+            _shared_backend = Memory.from_config(
+                {
+                    "llm": {
+                        "provider": "gemini",
+                        "config": {"model": "gemini-2.5-flash"},
+                    },
+                    "embedder": {
+                        "provider": "gemini",
+                        "config": {
+                            "model": "models/gemini-embedding-001",
+                            "embedding_dims": 768,
+                        },
+                    },
+                    "vector_store": {
+                        "provider": "qdrant",
+                        "config": {
+                            "path": str(_DEFAULT_DIR / "qdrant"),
+                            "collection_name": "numpyai_dashboard",
+                            "embedding_model_dims": 768,
+                            "on_disk": True,
+                        },
+                    },
+                }
+            )
+        return _shared_backend
+
 
 class AgentMemory:
     """Remember (question, answer) pairs and recall the relevant ones.
@@ -49,31 +91,9 @@ class AgentMemory:
             ) from exc
 
         if config is None:
-            _DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
-            config = {
-                "llm": {
-                    "provider": "gemini",
-                    "config": {"model": "gemini-2.5-flash"},
-                },
-                "embedder": {
-                    "provider": "gemini",
-                    "config": {
-                        "model": "models/gemini-embedding-001",
-                        "embedding_dims": 768,
-                    },
-                },
-                "vector_store": {
-                    "provider": "qdrant",
-                    "config": {
-                        "path": str(_DEFAULT_DIR / "qdrant"),
-                        "collection_name": "numpyai_dashboard",
-                        "embedding_model_dims": 768,
-                        "on_disk": True,
-                    },
-                },
-            }
-
-        self._memory = Memory.from_config(config)
+            self._memory = _default_backend()
+        else:
+            self._memory = Memory.from_config(config)
         self.user_id = user_id
         self._queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._worker = threading.Thread(
@@ -111,6 +131,35 @@ class AgentMemory:
             while self._queue.unfinished_tasks:
                 if not self._queue.all_tasks_done.wait(timeout):
                     return
+
+    def forget(self) -> int:
+        """Erase every memory stored for this ``user_id``. Returns the count.
+
+        Pending writes are flushed first, so a queued exchange cannot
+        resurrect after the wipe.
+        """
+        self.flush(timeout=60)
+        try:
+            existing = self._memory.get_all(filters={"user_id": self.user_id})
+            if isinstance(existing, dict):
+                existing = existing.get("results", [])
+            count = len(existing)
+            self._memory.delete_all(user_id=self.user_id)
+            return count
+        except Exception:
+            return 0
+
+    @staticmethod
+    def forget_everything() -> None:
+        """Delete the entire default on-disk store, all datasets included.
+
+        Only touches ``~/.numpyai_dashboard/memory``; a custom ``config``
+        pointing elsewhere is not affected. Any live AgentMemory instances
+        should be discarded afterwards.
+        """
+        import shutil
+
+        shutil.rmtree(_DEFAULT_DIR, ignore_errors=True)
 
     def _drain(self) -> None:
         while True:
