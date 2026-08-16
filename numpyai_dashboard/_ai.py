@@ -296,7 +296,9 @@ def prompt_single(
 
 CRITICAL INSTRUCTIONS:
 1. The array is ALREADY defined as `arr`. DO NOT create a new array with `arr = ...`.
-2. DO NOT IMPORT any libraries except numpy (already imported as `np`).
+2. `np` (numpy) is pre-imported. You may import from numpy, scipy, sklearn
+   and matplotlib when a bare name is cleaner (e.g.
+   `from sklearn.linear_model import LinearRegression`). Import nothing else.
 3. Prefer NumPy for everything. `scipy`, `sklearn` and `matplotlib.pyplot` (as
    `plt`) are available as a last resort - do not use them unless necessary.
    Reach for `scipy` only where NumPy genuinely lacks the routine, such as
@@ -364,8 +366,10 @@ def prompt_multiple(
 CRITICAL INSTRUCTIONS:
 1. These are ALREADY defined: {names}. DO NOT redefine or reload them, and do
    not invent names or columns that are not listed above.
-2. DO NOT IMPORT anything. `np` (numpy){", `pd` (pandas)" if has_frame else ""} and
-   where installed `scipy`, `sklearn` and `plt` are already available.
+2. `np` (numpy){", `pd` (pandas)" if has_frame else ""} and, where installed,
+   `scipy`, `sklearn` and `plt` are pre-bound. You may also import from numpy,
+   pandas, scipy, sklearn and matplotlib when a bare name is cleaner (e.g.
+   `from sklearn.cluster import KMeans`). Import nothing else.
 3. DO NOT mutate the inputs. Derive new values into `output` instead.
 4. There MUST be exactly one variable named `output` containing the result.
 5. There MUST be exactly one variable named `metadata` - a short string describing
@@ -446,8 +450,10 @@ def prompt_frame(
 CRITICAL INSTRUCTIONS:
 1. The DataFrame is ALREADY defined as `df`. DO NOT create or reload it, and do
    not invent columns that are not listed above.
-2. DO NOT IMPORT anything. `pd` (pandas), `np` (numpy), and where installed
-   `scipy`, `sklearn` and `plt` are already available.
+2. `pd` (pandas), `np` (numpy) and, where installed, `scipy`, `sklearn` and
+   `plt` are pre-bound. You may also import from numpy, pandas, scipy, sklearn
+   and matplotlib when a bare name is cleaner (e.g.
+   `from sklearn.linear_model import LinearRegression`). Import nothing else.
 3. Use whichever fits the question. pandas for grouping, joining and resampling;
    NumPy for array maths. Both are fine, and mixing them is fine:
        output = df.groupby('region')['units'].sum()
@@ -521,7 +527,9 @@ def prompt_frames(
 CRITICAL INSTRUCTIONS:
 1. The DataFrames are ALREADY defined under the names above ({", ".join(names)}).
    DO NOT create or reload them, and do not invent columns not listed.
-2. DO NOT IMPORT anything. `pd` (pandas) and `np` (numpy) are available.
+2. `pd` (pandas) and `np` (numpy) are pre-bound. You may also import from
+   numpy, pandas, scipy, sklearn and matplotlib when a bare name is cleaner.
+   Import nothing else.
 3. Prefer vectorised operations over Python loops. To combine tables use
    merge/concat/set operations on the listed columns.
    If the question asks HOW to analyse or for methodology rather than a

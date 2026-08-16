@@ -155,3 +155,20 @@ def test_pandas_is_in_the_execution_namespace():
         verbose=False,
     )
     assert value == 3
+
+
+def test_generated_code_may_import_from_the_scientific_stack():
+    """The prompt used to forbid imports; the model then wrote bare
+    LinearRegression() and died on NameError. from-imports must work."""
+    pytest.importorskip("sklearn")
+    from numpyai_dashboard._engine import execute
+
+    code = (
+        "from sklearn.linear_model import LinearRegression\n"
+        "import numpy as _np\n"
+        "m = LinearRegression().fit(_np.array([[1.0], [2.0]]), [2.0, 4.0])\n"
+        "output = float(m.coef_[0])\n"
+        "metadata = 'slope'"
+    )
+    value, _ = execute(code, {}, verbose=False)
+    assert value == pytest.approx(2.0)
