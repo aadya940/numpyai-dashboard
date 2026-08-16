@@ -21,9 +21,16 @@ import numpy as np
 import pandas as pd
 import panel as pn
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 import numpyai_dashboard as npi
-from numpyai_dashboard._ai import ChatResult, NumpyCodeGen, prompt_frames
+from numpyai_dashboard._ai import (
+    DEFAULT_MODEL,
+    ChatResult,
+    NumpyCodeGen,
+    _run_coro,
+    prompt_frames,
+)
 from numpyai_dashboard._engine import execute, run_chat
 from numpyai_dashboard._validator import NumpyValidator
 
@@ -76,6 +83,26 @@ GRIDLINES = {"splitLine": {"lineStyle": {"type": "dashed", "color": "#e2e8f0"}}}
 
 _KEY_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 HAS_KEY = any(os.getenv(v) for v in _KEY_VARS)
+
+
+class _BlockTakeaway(BaseModel):
+    number: int = Field(description="The block number this takeaway belongs to.")
+    takeaway: str = Field(
+        description=(
+            "One sentence, under 120 characters: what a human should conclude "
+            "from this block alone, with its key number."
+        )
+    )
+
+
+class _BoardStory(BaseModel):
+    story: str = Field(
+        description=(
+            "The story the whole board tells: 3-6 sentences of markdown, "
+            "headline number first, evidence cited as #n, one caveat last."
+        )
+    )
+    takeaways: list[_BlockTakeaway]
 
 
 def slug(stem: str) -> str:
@@ -142,6 +169,22 @@ def _echarts_spec(series: pd.Series) -> dict:
                 "itemStyle": (None if time_like else {"borderRadius": [6, 6, 0, 0]}),
                 "areaStyle": {"color": fade} if time_like else None,
                 "barMaxWidth": 46,
+                "markPoint": {
+                    "data": [{"type": "max", "name": "peak"}],
+                    "symbolSize": 42,
+                    "label": {"fontSize": 10, "color": "#ffffff"},
+                    "itemStyle": {"color": "#0f172a"},
+                },
+                "markLine": (
+                    {
+                        "data": [{"type": "average", "name": "avg"}],
+                        "lineStyle": {"type": "dashed", "color": "#9ca3af"},
+                        "label": {"fontSize": 10, "color": "#9ca3af"},
+                        "symbol": "none",
+                    }
+                    if time_like
+                    else None
+                ),
             }
         ],
     }
@@ -331,6 +374,13 @@ class Block:
         )
         dismiss.on_click(lambda _: board.remove(self))
 
+        initial = phrase_value(result.value)
+        self.takeaway = pn.pane.Markdown(
+            f"→ {initial}" if initial else "",
+            visible=bool(initial),
+            margin=(0, 10, 2, 10),
+            styles={"font-size": "12.5px", "color": "#374151"},
+        )
         self._body = pn.Column(sizing_mode="stretch_width", min_height=260)
         self._redraw()
 
@@ -352,6 +402,7 @@ class Block:
                 dismiss,
                 sizing_mode="stretch_width",
             ),
+            self.takeaway,
             self._body,
             code_view,
             styles={"background": "#ffffff", "padding": "12px 14px", **CARD_CSS},
@@ -747,31 +798,54 @@ class Board:
             )
         return "\n".join(lines)
 
+    @property
+    def _story_agent(self):
+        if not hasattr(self, "_story_agent_obj"):
+            from pydantic_ai import Agent
+
+            self._story_agent_obj = Agent(
+                model=DEFAULT_MODEL,
+                output_type=_BoardStory,
+                system_prompt=(
+                    "You are a sharp, plain-spoken data analyst. You are given "
+                    "the blocks of a dashboard and you say what they mean: "
+                    "grounded in the numbers provided, never invented."
+                ),
+            )
+        return self._story_agent_obj
+
     async def retell(self) -> None:
-        """Rewrite the board's story from its current blocks. One text call."""
+        """One structured call: the board's story plus a takeaway per card."""
         if len(self.blocks) < 2 or not HAS_KEY:
             return
         material = self._story_material()
+        prompt = (
+            "This dashboard currently shows the following blocks, in the "
+            f"order they were made:\n\n{material}\n\n"
+            "Return the story of the whole board (headline number first, "
+            "evidence cited as #n, one caveat last) AND one takeaway per "
+            "block: the single thing a human should conclude from that block, "
+            "with its key number. Ground everything strictly in the material; "
+            "invent nothing."
+        )
         try:
-            story = await asyncio.to_thread(
-                self._texter.generate_text,
-                "This dashboard currently shows the following blocks, in the "
-                f"order they were made:\n\n{material}\n\n"
-                "Write the story this dashboard tells, in 3-6 sentences of "
-                "markdown. Lead with the headline finding and its number. "
-                "Connect the supporting evidence, referencing blocks as #n. "
-                "End with the one caveat or open question a careful analyst "
-                "would flag. Ground every number strictly in the material "
-                "above; invent nothing.",
+            result = await asyncio.to_thread(
+                lambda: _run_coro(self._story_agent.run(prompt)).output
             )
         except Exception:
             return
+        by_number = {b.number: b for b in self.blocks}
         with pn.io.unlocked():
             self.story.object = (
                 "<span style='color:#9ca3af;font-size:11px;font-weight:600;"
-                "letter-spacing:.08em'>THE STORY SO FAR</span>\n\n" + story
+                "letter-spacing:.08em'>THE STORY SO FAR</span>\n\n" + result.story
             )
             self.story.visible = True
+            for item in result.takeaways:
+                block = by_number.get(item.number)
+                if block is not None and item.takeaway:
+                    block.takeaway.object = f"→ {item.takeaway}"
+                    block.takeaway.visible = True
 
     def drill(self, label: str, block: Block) -> None:
         """A clicked chart element becomes a board-wide filter, or a question.
