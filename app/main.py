@@ -85,6 +85,17 @@ _KEY_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_AP
 HAS_KEY = any(os.getenv(v) for v in _KEY_VARS)
 
 
+class _Starters(BaseModel):
+    questions: list[str] = Field(
+        description=(
+            "Exactly three analysis questions for this dataset, each a "
+            "different KIND of analysis - e.g. one headline metric, one "
+            "relationship between columns, one distribution, segment "
+            "comparison or anomaly check. Never three groupby-sums."
+        )
+    )
+
+
 class _BlockTakeaway(BaseModel):
     number: int = Field(description="The block number this takeaway belongs to.")
     takeaway: str = Field(
@@ -220,6 +231,11 @@ def render_value(value, chart: str | None = None, on_click=None):
             and 1 < len(value) <= 5000
         ):
             x, y = value.columns
+            xs = value[x].to_numpy()
+            monotonic = bool(np.all(np.diff(xs[~np.isnan(xs)]) >= 0))
+            kind = "scatter" if (chart == "scatter" or not monotonic) else "line"
+            if chart in ("bar", "line"):
+                kind = chart
             spec = {
                 "color": PALETTE,
                 "tooltip": {"trigger": "axis"},
@@ -228,7 +244,8 @@ def render_value(value, chart: str | None = None, on_click=None):
                 "yAxis": {"type": "value", "name": str(y), **AXIS, **GRIDLINES},
                 "series": [
                     {
-                        "type": "bar" if chart == "bar" else "line",
+                        "type": kind,
+                        "symbolSize": 7 if kind == "scatter" else 4,
                         "showSymbol": len(value) <= 50,
                         "data": [
                             [float(a), float(b)]
@@ -343,7 +360,7 @@ class Block:
         self.fresh = True
         self.source: str | None = None
         self.chart_choice = pn.widgets.Select(
-            options=["auto", "bar", "line", "table"],
+            options=["auto", "bar", "line", "scatter", "table"],
             value="auto",
             width=76,
             align="end",
@@ -1067,8 +1084,7 @@ class Board:
             n for n, i in s.items() if i.get("kind") == "text" and "categories" in i
         ]
         dates = [n for n, i in s.items() if i.get("kind") == "datetime"]
-        # A story arc, not three arbitrary views: headline, then the trend,
-        # then what drives it.
+        # Template fallback: a story arc of headline, trend, driver.
         out = []
         if nums:
             out.append(f"Overall total {nums[0]}.")
@@ -1078,11 +1094,52 @@ class Board:
             out.append(f"Total {nums[0]} by {cats[0]}.")
         return out[:3]
 
+    async def _starter_questions(self) -> list[str]:
+        """Ask the model for three varied questions; fall back to templates.
+
+        The templates always anchored on the first numeric and first
+        categorical column, so every session opened with the same three
+        views - the sameness the board was accused of started here.
+        """
+        summary = self.frame.metadata["column_summary"]
+        cols = "\n".join(
+            f"- {name}: {info.get('kind')} "
+            f"({info.get('categories') or info.get('min', '')})"
+            for name, info in summary.items()
+        )
+        try:
+            from pydantic_ai import Agent
+
+            agent = Agent(
+                model=DEFAULT_MODEL,
+                output_type=_Starters,
+                system_prompt=(
+                    "You propose sharp opening questions for a data dashboard."
+                ),
+            )
+            result = await asyncio.to_thread(
+                lambda: _run_coro(
+                    agent.run(
+                        f"The dataset has these columns:\n{cols}\n\n"
+                        "Propose exactly three short questions, each a "
+                        "different kind of analysis (headline metric, "
+                        "relationship, distribution, segment gap, anomaly...). "
+                        "Plain English, each answerable from these columns."
+                    )
+                ).output
+            )
+            questions = [q.strip() for q in result.questions if q.strip()]
+            if len(questions) >= 2:
+                return questions[:3]
+        except Exception:
+            pass
+        return self.suggestions()
+
     async def autostart(self) -> None:
         if not HAS_KEY:
             self.status.object = "*No API key - autostart skipped.*"
             return
-        for q in self.suggestions():
+        for q in await self._starter_questions():
             # Mutations from a load task need pn.io.unlocked() to be pushed
             # over the websocket; without it they sit server-side, invisible.
             with pn.io.unlocked():

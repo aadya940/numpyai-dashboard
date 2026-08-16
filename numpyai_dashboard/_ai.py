@@ -399,7 +399,10 @@ def _history_block(history: list[tuple[str, str, str]] | None) -> str:
     return (
         "\nEARLIER IN THIS CONVERSATION (oldest first):\n"
         + "\n".join(lines)
-        + "\n\nThe user may refer back to these ('it', 'that chart', 'the tree').\n"
+        + "\n\nDo not simply reproduce an analysis listed above. Asked for\n"
+        "something similar, extend it or take a genuinely different angle -\n"
+        "a different column, statistic, or method.\n"
+        "The user may refer back to these ('it', 'that chart', 'the tree').\n"
         "To explain or interpret an earlier result, re-run what you need from the\n"
         "code above and ground the explanation in the actual numbers - for example\n"
         "`sklearn.tree.export_text(model)` for a fitted tree, or the real group\n"
@@ -465,7 +468,8 @@ CRITICAL INSTRUCTIONS:
    Python loops over rows, groups or unique values.
    If the question asks HOW to analyse, what to explore, or for methodology
    rather than a computation, answer in the `advice` field instead of `code`:
-   concrete suggestions naming the actual columns above, no code at all.
+   concrete suggestions naming the actual columns above, no code at all,
+   and only angles not already covered in the conversation above.
    But when the user says to proceed - "do it", "do the first one", "all of
    that" - that refers to the conversation above: compute it now with `code`.
    For several related results, return a dict of labelled outputs. Never ask
