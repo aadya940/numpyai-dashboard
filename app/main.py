@@ -442,17 +442,54 @@ class Board:
 
     def _render_chips(self) -> None:
         chips = []
+        removable = len(self.files) > 1
         for name in self.files:
             is_active = name == self.active
             b = pn.widgets.Button(
                 name=f"@{name}",
                 button_type="primary" if is_active else "light",
                 height=26,
-                margin=(2, 3),
+                margin=(2, 0, 2, 3),
             )
             b.on_click(lambda _e, n=name: self.switch(n))
             chips.append(b)
+            if removable:
+                x = pn.widgets.Button(
+                    name="✕",
+                    button_type="light",
+                    width=24,
+                    height=26,
+                    margin=(2, 3, 2, 0),
+                )
+                x.on_click(lambda _e, n=name: self.remove_file(n))
+                chips.append(x)
         self.file_chips.objects = chips
+
+    def remove_file(self, name: str) -> None:
+        """Drop a file from the session, and the blocks that came from it.
+
+        Long-term memories are kept: removing a file from view is not the same
+        as forgetting what was learned from it. The last file cannot go.
+        """
+        if name not in self.files or len(self.files) == 1:
+            return
+        del self.files[name]
+        orphaned = [b for b in self.blocks if b.source == name]
+        for block in orphaned:
+            self.blocks.remove(block)
+        if self.active == name:
+            self.active = next(iter(self.files))
+            self._build_filters()
+            self.table.value = self.frame.data
+        self._render_chips()
+        self._rebuild_grid()
+        self.chat.send(
+            f"Removed **@{name}**"
+            + (f" and its {len(orphaned)} block(s)" if orphaned else "")
+            + f". Active file is **@{self.active}**.",
+            user="numpyai",
+            respond=False,
+        )
 
     def switch(self, name: str) -> None:
         """Make ``name`` the active file: filters, table and memory follow."""
