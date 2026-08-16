@@ -671,7 +671,8 @@ class Board:
 
     async def _ask(self, question: str) -> ChatResult:
         mentioned = parse_mentions(question, list(self.files))
-        if len(mentioned) >= 2:
+        self._last_was_multi = len(mentioned) >= 2
+        if self._last_was_multi:
             return await asyncio.to_thread(self._multi_chat, question, mentioned)
         if len(mentioned) == 1:
             self.switch(mentioned[0])
@@ -741,7 +742,25 @@ class Board:
                 ),
             )
         if result.ok:
-            block = self.add_block(result, contents)
+            was_multi = getattr(self, "_last_was_multi", False)
+            block = self.add_block(
+                result, contents, source=None if was_multi else "active"
+            )
+            if was_multi and isinstance(result.value, pd.DataFrame):
+                # "Join these files" should yield a file, not only a card.
+                name = "merged"
+                while name in self.files:
+                    name += "_2"
+                self.files[name] = npi.frame(result.value)
+                self.memories.setdefault(name, self._make_memory(name))
+                self._render_chips()
+                self.chat.send(
+                    f"I've also registered the result as **@{name}** "
+                    f"({len(result.value):,} rows) - you can chat with it, "
+                    "filter it, or compare it like any other file.",
+                    user="numpyai",
+                    respond=False,
+                )
             retried = (
                 f" It took {result.attempts} attempts - the first tries were "
                 "rejected before one passed review."

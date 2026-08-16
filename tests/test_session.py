@@ -89,13 +89,13 @@ def test_chat_sees_a_frame_and_an_array(sales):
     assert make([A, sales], script).chat("combine").value == pytest.approx(8.0 + 6.0)
 
 
-def test_pandas_is_bound_only_when_a_frame_is_present(sales):
+def test_pandas_is_bound_whenever_installed(sales):
+    """pd is part of the base namespace now: a multi-file prompt once promised
+    pandas while the namespace lacked it, and every attempt died on
+    "name 'pd' is not defined"."""
     script = [("output = pd.Series([1, 2]).sum()\nmetadata = 'pd'", "pd", True, "")]
     assert make([sales], script).chat("check").value == 3
-
-    # No frame in the session, so `pd` is not in scope and the attempt fails.
-    result = make([A], script, max_tries=1).chat("check")
-    assert result.ok is False
+    assert make([A], script).chat("check").value == 3
 
 
 def test_failure_is_reported_not_raised():

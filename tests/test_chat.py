@@ -141,3 +141,16 @@ def test_stray_figure_is_closed_when_output_is_set():
     value, _ = execute(code, {}, verbose=False)
     assert value == 42
     assert plt.get_fignums() == []
+
+
+def test_pandas_is_in_the_execution_namespace():
+    """Multi-file chat promised pd and the namespace lacked it; never again."""
+    pytest.importorskip("pandas")
+    from numpyai_dashboard._engine import execute
+
+    value, _ = execute(
+        "output = pd.DataFrame({'a': [1, 2]})['a'].sum()\nmetadata = 'x'",
+        {},
+        verbose=False,
+    )
+    assert value == 3

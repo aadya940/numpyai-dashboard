@@ -66,6 +66,11 @@ def optional_globals() -> dict:
     namespace: dict = {}
 
     with contextlib.suppress(ImportError):
+        import pandas
+
+        namespace["pd"] = pandas
+
+    with contextlib.suppress(ImportError):
         import matplotlib.pyplot as plt
 
         namespace["plt"] = plt
