@@ -22,7 +22,7 @@ import panel as pn
 from dotenv import load_dotenv
 
 import numpyai_dashboard as npi
-from numpyai_dashboard._ai import ChatResult
+from numpyai_dashboard._ai import ChatResult, NumpyCodeGen
 from numpyai_dashboard._engine import execute
 
 pn.extension("echarts", "tabulator", notifications=True)
@@ -151,6 +151,8 @@ def render_value(value, chart: str | None = None):
             sizing_mode="stretch_width",
         )
 
+    if isinstance(value, str):
+        return pn.pane.Markdown(value if len(value) > 60 else f"**{value}**")
     return pn.pane.Markdown(f"**{value}**")
 
 
@@ -258,6 +260,9 @@ class Board:
         self.frame = npi.read_excel(str(SAMPLE))
         self.blocks: list[Block] = []
         self._counter = 0
+        #: shared across the per-question frames so "explain it" has a referent
+        self._chat_history: list[tuple[str, str, str]] = []
+        self._texter = NumpyCodeGen()
 
         self.table = pn.widgets.Tabulator(
             self.frame.data,
@@ -312,6 +317,7 @@ class Board:
         reader = npi.read_csv if suffix in (".csv", ".tsv") else npi.read_excel
         self.frame = reader(path)
         self.blocks.clear()
+        self._chat_history.clear()
         self.table.value = self.frame.data
         self._build_filters()
         self._rebuild_grid()
@@ -397,12 +403,37 @@ class Board:
 
     async def _ask(self, question: str) -> ChatResult:
         chatting = npi.frame(self._filtered(), max_tries=3)
+        chatting.history = self._chat_history  # shared, mutated in place
         return await asyncio.to_thread(chatting.chat, question)
 
     async def _on_ask(self, contents: str, user: str, instance):
         if not HAS_KEY:
             return "No provider API key found - set one in `examples/.env`."
         result = await self._ask(contents)
+        if result.ok and isinstance(result.value, str):
+            # The code step produced evidence (tree rules, group numbers). The
+            # code persona cannot narrate values it has not seen, so a second,
+            # text-only step turns evidence into an answer - grounded, because
+            # the evidence is in its context and it is told to stay inside it.
+            narrated = await asyncio.to_thread(
+                self._texter.generate_text,
+                f"The user asked: {contents}\n\n"
+                "Evidence computed directly from their data:\n"
+                f"{result.value}\n\n"
+                "Answer the user in 2-5 plain sentences grounded strictly in "
+                "this evidence. Do not invent numbers. After your answer, "
+                "include the evidence verbatim under a 'Details:' heading.",
+            )
+            return pn.Column(
+                pn.pane.Markdown(narrated),
+                pn.Accordion(
+                    (
+                        "how I computed it",
+                        pn.pane.Markdown(f"```python\n{result.code}\n```"),
+                    ),
+                    active=[],
+                ),
+            )
         if result.ok:
             block = self.add_block(result, contents)
             retried = (

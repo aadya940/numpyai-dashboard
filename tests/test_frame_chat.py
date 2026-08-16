@@ -146,3 +146,50 @@ def test_rejects_a_non_dataframe():
 def test_rejects_a_non_string_query(sales):
     with pytest.raises(TypeError, match="query must be a string"):
         make(sales, GROUPBY).chat(42)
+
+
+# --------------------------------------------------------------------------
+# conversation memory
+# --------------------------------------------------------------------------
+
+
+def test_successful_turns_are_remembered(sales):
+    f = make(sales, GROUPBY)
+    f.chat("units by region")
+    assert f.history == [
+        (
+            "units by region",
+            "output = df.groupby('region')['units'].sum()\nmetadata = 'units per region'",
+            "units per region",
+        )
+    ]
+
+
+def test_failed_turns_are_not_remembered(sales):
+    rejected = [("output = df['units'].min()\nmetadata = 'min'", "min", False, "wrong")]
+    f = make(sales, rejected * 3)
+    f.chat("max units")
+    assert f.history == []
+
+
+def test_history_reaches_the_prompt(sales):
+    prompt = prompt_frame(
+        "explain it",
+        frame(sales).metadata,
+        history=[("units by region", "output = df.groupby(...)", "units per region")],
+    )
+    assert "EARLIER IN THIS CONVERSATION" in prompt
+    assert "units by region" in prompt
+    assert "explain from memory alone" in prompt
+
+
+def test_history_is_bounded(sales):
+    f = frame(sales)
+    f.history = [(f"q{i}", "code", "desc") for i in range(20)]
+    prompt = prompt_frame("x", f.metadata, history=f.history)
+    assert "q19" in prompt and "q13" not in prompt
+
+
+def test_no_history_block_when_empty(sales):
+    prompt = prompt_frame("x", frame(sales).metadata, history=[])
+    assert "EARLIER IN THIS CONVERSATION" not in prompt

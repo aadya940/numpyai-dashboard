@@ -351,10 +351,34 @@ CORRECT EXAMPLES:
 """
 
 
+def _history_block(history: list[tuple[str, str, str]] | None) -> str:
+    """Render earlier turns so follow-ups like "explain it" have a referent."""
+    if not history:
+        return ""
+    lines = []
+    for question, code, description in history[-6:]:
+        snippet = code if len(code) <= 400 else code[:400] + " ..."
+        lines.append(
+            f"- asked: {question}\n  ran: {snippet}\n"
+            f"  result: {description or '(no description)'}"
+        )
+    return (
+        "\nEARLIER IN THIS CONVERSATION (oldest first):\n"
+        + "\n".join(lines)
+        + "\n\nThe user may refer back to these ('it', 'that chart', 'the tree').\n"
+        "To explain or interpret an earlier result, re-run what you need from the\n"
+        "code above and ground the explanation in the actual numbers - for example\n"
+        "`sklearn.tree.export_text(model)` for a fitted tree, or the real group\n"
+        "totals - then put the explanation in `output` as a plain string. Never\n"
+        "explain from memory alone.\n"
+    )
+
+
 def prompt_frame(
     query: str,
     metadata: dict,
     prior_feedback: str | None = None,
+    history: list[tuple[str, str, str]] | None = None,
 ) -> str:
     """Build the code-generation prompt for a DataFrame-backed query."""
     feedback_block = (
@@ -363,6 +387,7 @@ def prompt_frame(
         if prior_feedback
         else ""
     )
+    history_block = _history_block(history)
     return f"""Generate Python code to perform the following operation:
 
 {query}
@@ -371,6 +396,7 @@ def prompt_frame(
 `df` is a pandas DataFrame with {metadata.get("rows", "?")} rows. Its columns:
 
 {_column_block(metadata.get("column_summary", {}))}
+{history_block}
 
 CRITICAL INSTRUCTIONS:
 1. The DataFrame is ALREADY defined as `df`. DO NOT create or reload it, and do

@@ -61,6 +61,9 @@ class frame:
         self.verbose = verbose
         self.current_prompt: str | None = None
         self._model = model
+        #: (question, code, description) per successful turn, oldest first.
+        #: Rendered into the prompt so follow-ups like "explain it" resolve.
+        self.history: list[tuple[str, str, str]] = []
 
     # ------------------------------------------------------------------
     # pandas interop
@@ -121,17 +124,24 @@ class frame:
         """
         self.current_prompt = query
         metadata = self.metadata
-        return run_chat(
+        result = run_chat(
             query,
             data_vars={"df": self._data, "pd": _pandas()},
             build_prompt=lambda prior: prompt_frame(
-                query=query, metadata=metadata, prior_feedback=prior
+                query=query,
+                metadata=metadata,
+                prior_feedback=prior,
+                history=self.history,
             ),
             generator=self._code_generator,
             validator=self._validator,
             max_tries=self.MAX_TRIES,
             verbose=self.verbose,
         )
+        if result.ok:
+            self.history.append((query, result.code, result.description))
+            del self.history[:-8]
+        return result
 
 
 def _pandas():
