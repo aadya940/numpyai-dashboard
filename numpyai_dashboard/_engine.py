@@ -117,8 +117,13 @@ def _generate(
 ) -> CodeResponse:
     response = generator.generate_code(build_prompt(prior_feedback))
     response = CodeResponse(
-        code=clean_code(response.code), explanation=response.explanation
+        code=clean_code(response.code),
+        advice=getattr(response, "advice", ""),
+        explanation=response.explanation,
     )
+
+    if response.advice and not response.code:
+        return response
 
     if show:
         console.print(
@@ -167,6 +172,25 @@ def run_chat(
             response = _generate(
                 build_prompt, prior_feedback, generator, validator, show=loud
             )
+
+            if getattr(response, "advice", "") and not response.code.strip():
+                # An advisory answer: there is nothing to execute and nothing
+                # for the judge, whose brief is whether code matches the query.
+                console.print(
+                    Panel(response.advice, title="Advice", border_style="cyan")
+                )
+                return ChatResult(
+                    value=response.advice,
+                    code="",
+                    description="advisory answer",
+                    judgment=Judgment(
+                        interprets_query_correctly=True,
+                        reason="advisory answer - nothing to execute",
+                    ),
+                    attempts=attempt,
+                    errors=errors,
+                )
+
             if loud:
                 console.print("[bold]Executing generated code...[/bold]")
             result, explainer = execute(

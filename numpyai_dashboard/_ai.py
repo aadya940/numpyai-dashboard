@@ -55,16 +55,32 @@ SYSTEM_PROMPT = (
 
 
 class CodeResponse(BaseModel):
-    """Structured response returned by the code-generation agent."""
+    """Structured response returned by the code-generation agent.
+
+    Exactly one of ``code`` and ``advice`` is filled. Computations produce
+    code; questions asking for guidance produce advice, because forcing
+    methodology questions through exec() yields a dict dump, not an answer.
+    """
 
     code: str = Field(
+        default="",
         description=(
             "Executable Python/NumPy code. Must define `output` (the result) and "
-            "`metadata` (a short string describing `output`). No markdown fences."
-        )
+            "`metadata` (a short string describing `output`). No markdown fences. "
+            "Leave empty when answering with `advice` instead."
+        ),
+    )
+    advice: str = Field(
+        default="",
+        description=(
+            "Only for questions asking HOW to analyse, what to explore, or for "
+            "methodology - not for computations. A concise markdown answer that "
+            "names the actual columns of this dataset. Leave empty when "
+            "answering with `code`."
+        ),
     )
     explanation: str = Field(
-        description="One-sentence natural-language explanation of what the code does."
+        description="One-sentence natural-language explanation of the response."
     )
 
 
@@ -427,6 +443,9 @@ CRITICAL INSTRUCTIONS:
 5. DO NOT mutate `df`. Derive new values into `output` instead.
 6. Prefer vectorised operations (groupby, boolean masks, column arithmetic) over
    Python loops over rows, groups or unique values.
+   If the question asks HOW to analyse, what to explore, or for methodology
+   rather than a computation, answer in the `advice` field instead of `code`:
+   concrete suggestions naming the actual columns above, no code at all.
 7. There MUST be exactly one variable named `output` containing what was asked for.
    If the user asked for a plot, `output` must be the Figure itself
    (`output = plt.gcf()`) - a plot drawn as a side effect is discarded.

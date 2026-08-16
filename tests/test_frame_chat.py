@@ -244,3 +244,46 @@ def test_no_memories_block_without_memory(sales):
     f = make(sales, GROUPBY)
     f.chat("units by region")
     assert "REMEMBERED FROM EARLIER SESSIONS" not in f._code_generator.last_prompt
+
+
+# --------------------------------------------------------------------------
+# advisory answers bypass execution and the judge
+# --------------------------------------------------------------------------
+
+
+class AdviceGen:
+    """A generator that answers with advice instead of code."""
+
+    def __init__(self, advice):
+        self.advice = advice
+        self.judged = False
+        self.last_prompt = ""
+
+    def generate_code(self, prompt):
+        from numpyai_dashboard._ai import CodeResponse
+
+        self.last_prompt = prompt
+        return CodeResponse(code="", advice=self.advice, explanation="advises")
+
+    def judge(self, query, code, metadata):  # pragma: no cover - must not run
+        self.judged = True
+        raise AssertionError("advice must not reach the judge")
+
+
+def test_advice_is_returned_without_execution(sales):
+    f = frame(sales)
+    gen = AdviceGen("Start with `units` by `region`, then trend over `when`.")
+    f._code_generator = gen
+    result = f.chat("How should I analyse this dataset?")
+    assert result.ok is True
+    assert result.value == "Start with `units` by `region`, then trend over `when`."
+    assert result.code == ""
+    assert result.attempts == 1
+    assert gen.judged is False
+
+
+def test_advice_turns_are_remembered_in_history(sales):
+    f = frame(sales)
+    f._code_generator = AdviceGen("Look at `units` first.")
+    f.chat("where to start?")
+    assert f.history[0][0] == "where to start?"

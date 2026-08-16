@@ -154,6 +154,20 @@ def render_value(value, chart: str | None = None):
             sizing_mode="stretch_width",
         )
 
+    if isinstance(value, dict):
+        # A dict of results renders as labelled sections, never a repr blob.
+        parts = []
+        for key, item in list(value.items())[:8]:
+            parts.append(
+                pn.pane.Markdown(
+                    f"<span style='font-weight:600;font-size:12px;"
+                    f"color:#6b7280'>{key}</span>",
+                    margin=(4, 8, 0, 8),
+                )
+            )
+            parts.append(render_value(item, chart))
+        return pn.Column(*parts, sizing_mode="stretch_width")
+
     if isinstance(value, np.ndarray):
         if value.ndim <= 2 and value.size <= 400:
             return pn.widgets.Tabulator(
@@ -522,6 +536,10 @@ class Board:
         if not HAS_KEY:
             return "No provider API key found - set one in `examples/.env`."
         result = await self._ask(contents)
+        if result.ok and isinstance(result.value, str) and not result.code:
+            # Advisory answer: already prose, already the answer. No pin, no
+            # narration pass - narrating advice would just paraphrase it.
+            return pn.pane.Markdown(result.value)
         if result.ok and isinstance(result.value, str):
             # The code step produced evidence (tree rules, group numbers). The
             # code persona cannot narrate values it has not seen, so a second,
