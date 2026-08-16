@@ -32,8 +32,19 @@ load_dotenv(REPO / "examples" / ".env")
 
 SAMPLE = REPO / "examples" / "sample_sales.xlsx"
 
-PALETTE = ["#5B8FF9", "#5AD8A6", "#F6BD16", "#E8684A", "#6DC8EC", "#9270CA"]
-CARD_CSS = {"border-radius": "10px", "box-shadow": "0 1px 4px rgba(0,0,0,.08)"}
+ACCENT = "#6366F1"
+PALETTE = ["#6366F1", "#22C55E", "#F59E0B", "#EF4444", "#06B6D4", "#A855F7"]
+CARD_CSS = {
+    "border-radius": "12px",
+    "box-shadow": "0 1px 2px rgba(15,23,42,.05)",
+    "border": "1px solid #e5e7eb",
+}
+AXIS = {
+    "axisLine": {"show": False},
+    "axisTick": {"show": False},
+    "axisLabel": {"color": "#64748b", "fontSize": 11},
+}
+GRIDLINES = {"splitLine": {"lineStyle": {"type": "dashed", "color": "#e2e8f0"}}}
 
 _KEY_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 HAS_KEY = any(os.getenv(v) for v in _KEY_VARS)
@@ -47,22 +58,40 @@ HAS_KEY = any(os.getenv(v) for v in _KEY_VARS)
 def _echarts_spec(series: pd.Series) -> dict:
     """Bar for categories, line for anything time-shaped."""
     time_like = isinstance(series.index, (pd.DatetimeIndex, pd.PeriodIndex))
+    fade = {
+        "type": "linear",
+        "x": 0,
+        "y": 0,
+        "x2": 0,
+        "y2": 1,
+        "colorStops": [
+            {"offset": 0, "color": "rgba(99,102,241,.35)"},
+            {"offset": 1, "color": "rgba(99,102,241,0)"},
+        ],
+    }
     return {
         "color": PALETTE,
         "tooltip": {"trigger": "axis"},
-        "grid": {"left": 60, "right": 16, "top": 16, "bottom": 40},
+        "grid": {"left": 56, "right": 12, "top": 14, "bottom": 42},
         "xAxis": {
             "type": "category",
             "data": [str(i) for i in series.index],
-            "axisLabel": {"rotate": 30 if len(series) > 6 else 0},
+            **AXIS,
+            "axisLabel": {
+                **AXIS["axisLabel"],
+                "rotate": 30 if len(series) > 6 else 0,
+            },
         },
-        "yAxis": {"type": "value"},
+        "yAxis": {"type": "value", **AXIS, **GRIDLINES},
         "series": [
             {
                 "type": "line" if time_like else "bar",
                 "data": [None if pd.isna(v) else round(float(v), 2) for v in series],
                 "smooth": time_like,
-                "areaStyle": {"opacity": 0.15} if time_like else None,
+                "lineStyle": {"width": 3} if time_like else None,
+                "itemStyle": (None if time_like else {"borderRadius": [6, 6, 0, 0]}),
+                "areaStyle": {"color": fade} if time_like else None,
+                "barMaxWidth": 46,
             }
         ],
     }
@@ -98,9 +127,9 @@ def render_value(value, chart: str | None = None):
             spec = {
                 "color": PALETTE,
                 "tooltip": {"trigger": "axis"},
-                "grid": {"left": 60, "right": 16, "top": 16, "bottom": 40},
-                "xAxis": {"type": "value", "name": str(x)},
-                "yAxis": {"type": "value", "name": str(y)},
+                "grid": {"left": 56, "right": 16, "top": 14, "bottom": 42},
+                "xAxis": {"type": "value", "name": str(x), **AXIS, **GRIDLINES},
+                "yAxis": {"type": "value", "name": str(y), **AXIS, **GRIDLINES},
                 "series": [
                     {
                         "type": "bar" if chart == "bar" else "line",
@@ -147,8 +176,10 @@ def render_value(value, chart: str | None = None):
         return pn.indicators.Number(
             value=round(float(value), 2),
             format="{value:,}",
-            font_size="42pt",
+            font_size="38pt",
+            default_color="#111827",
             sizing_mode="stretch_width",
+            styles={"padding": "14px 8px"},
         )
 
     if isinstance(value, str):
@@ -206,10 +237,28 @@ class Block:
         )
         self.chart_choice.param.watch(lambda _: self._redraw(), "value")
 
-        verdict = "✓" if result.ok else "✗"
-        color = "#1D9E75" if result.ok else "#E24B4A"
-        tries = f" · {result.attempts} tries" if result.attempts > 1 else ""
-        dismiss = pn.widgets.Button(name="✕", width=32, height=28, align="end")
+        ok = result.ok
+        # A clean board does not announce success on every card; only failures
+        # and retries earn a badge.
+        if not ok:
+            verdict_pill = (
+                " <span style='background:#fee2e2;color:#b91c1c;padding:1px 8px;"
+                "border-radius:999px;font-size:11px;font-weight:600'>failed</span>"
+            )
+        elif result.attempts > 1:
+            verdict_pill = (
+                f" <span style='color:#94a3b8;font-size:11px'>"
+                f"{result.attempts} tries</span>"
+            )
+        else:
+            verdict_pill = ""
+        number_pill = (
+            f"<span style='color:#94a3b8;font-size:12px;font-weight:600'>"
+            f"#{number}</span>"
+        )
+        dismiss = pn.widgets.Button(
+            name="✕", width=30, height=26, align="end", button_type="light"
+        )
         dismiss.on_click(lambda _: board.remove(self))
 
         self._body = pn.Column(sizing_mode="stretch_width")
@@ -223,9 +272,10 @@ class Block:
         self.panel = pn.Column(
             pn.Row(
                 pn.pane.Markdown(
-                    f"<span style='color:#8a8f98'>#{number}</span> **{question}**  "
-                    f"<span style='color:{color}'>{verdict}{tries}</span>",
-                    margin=(0, 8),
+                    f"{number_pill}&nbsp; <span style='font-weight:600;"
+                    f"font-size:13.5px;color:#111827'>{question}</span>"
+                    f"{verdict_pill}",
+                    margin=(2, 10),
                 ),
                 self.chart_choice,
                 dismiss,
@@ -233,9 +283,9 @@ class Block:
             ),
             self._body,
             code_view,
-            styles={"background": "#ffffff", "padding": "10px", **CARD_CSS},
+            styles={"background": "#ffffff", "padding": "12px 14px", **CARD_CSS},
             width=470,
-            margin=8,
+            margin=(0, 12, 12, 0),
         )
 
     def _redraw(self) -> None:
@@ -434,13 +484,26 @@ class Board:
     def _rebuild_grid(self) -> None:
         if not self.blocks:
             self.grid_holder.objects = [
-                pn.pane.Markdown("*No blocks yet - answers pin here.*", margin=(20, 8))
+                pn.pane.Markdown(
+                    "Nothing pinned yet - ask something and it lands here.",
+                    styles={
+                        "color": "#9ca3af",
+                        "text-align": "center",
+                        "font-size": "13px",
+                        "padding": "28px 0",
+                        "border": "1px dashed #d1d5db",
+                        "border-radius": "12px",
+                    },
+                    sizing_mode="stretch_width",
+                )
             ]
             return
         # GridStack renders blank in testing (panel 1.9.3); FlexBox holds the
         # cards reliably. Drag/resize is a follow-up, not worth a broken board.
         for b in self.blocks:
-            b.panel.css_classes = ["fresh-card"] if b.fresh else []
+            b.panel.css_classes = (
+                ["npi-card", "fresh-card"] if b.fresh else ["npi-card"]
+            )
             b.fresh = False
         self.grid_holder.height = None
         self.grid_holder.objects = [
@@ -569,34 +632,76 @@ class Board:
 board = Board()
 
 left = pn.Column(
-    pn.pane.Markdown("## numpyai dashboard", margin=(4, 8)),
-    pn.Row(board.file_input, board.forget_button),
+    pn.pane.Markdown(
+        f"<span style='display:inline-block;width:9px;height:9px;"
+        f"border-radius:50%;background:{ACCENT};margin-right:7px'></span>"
+        "<span style='color:#111827;font-size:17px;font-weight:700'>"
+        "numpyai</span> <span style='color:#9ca3af;font-size:17px'>"
+        "dashboard</span>",
+        margin=(10, 14, 0, 14),
+    ),
+    pn.pane.Markdown(
+        "<span style='color:#9ca3af;font-size:12px'>chat with your "
+        "spreadsheet - answers pin to the board</span>",
+        margin=(0, 14, 6, 14),
+    ),
     board.chat,
-    width=420,
-    styles={"background": "#f4f4f6", "padding": "8px", **CARD_CSS},
+    pn.Row(board.file_input, board.forget_button, margin=(2, 8, 6, 8)),
+    width=430,
+    styles={"background": "#ffffff", "padding": "6px", **CARD_CSS},
     sizing_mode="stretch_height",
 )
 
-right = pn.Column(
-    pn.Row(board.filters, board.status, sizing_mode="stretch_width"),
-    board.grid_holder,
-    pn.pane.Markdown("#### Data"),
+filter_bar = pn.Row(
+    pn.pane.Markdown(
+        "<span style='color:#9ca3af;font-size:11px;font-weight:600;"
+        "letter-spacing:.08em'>FILTERS</span>",
+        margin=(18, 2, 0, 14),
+        align="start",
+    ),
+    board.filters,
+    pn.Spacer(sizing_mode="stretch_width"),
+    board.status,
+    sizing_mode="stretch_width",
+    styles={"background": "#ffffff", "padding": "2px 8px 8px 8px", **CARD_CSS},
+)
+
+data_card = pn.Column(
+    pn.pane.Markdown(
+        "<span style='font-weight:600;font-size:13.5px;color:#111827'>" "Data</span>",
+        margin=(8, 14, 0, 14),
+    ),
     board.table,
+    sizing_mode="stretch_width",
+    styles={"background": "#ffffff", "padding": "6px", **CARD_CSS},
+)
+
+right = pn.Column(
+    filter_bar,
+    board.grid_holder,
+    data_card,
     sizing_mode="stretch_both",
-    margin=(0, 12),
-    styles={"background": "#eef0f4", "padding": "12px", "border-radius": "12px"},
+    margin=(0, 4, 0, 14),
 )
 
 pn.config.raw_css.append("""
-body { background: #e9ecf1; margin: 0; }
-:root { --design-primary-color: #5B8FF9; }
-@keyframes cardflash {
-  0%   { box-shadow: 0 0 0 3px #5B8FF9; }
-  100% { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+body {
+  background: #f6f7f9;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  color: #111827;
 }
-.fresh-card { animation: cardflash 2.2s ease-out; }
+:root { --design-primary-color: #6366F1; }
+.npi-card { transition: box-shadow .15s ease; }
+.npi-card:hover { box-shadow: 0 4px 12px rgba(15,23,42,.08) !important; }
+@keyframes cardflash {
+  0%   { box-shadow: 0 0 0 2px #6366F1; }
+  100% { box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+}
+.fresh-card { animation: cardflash 2s ease-out; }
 """)
-app = pn.Row(left, right, sizing_mode="stretch_both", margin=8)
+app = pn.Row(left, right, sizing_mode="stretch_both", margin=12)
 app.servable(title="numpyai dashboard")
 
 pn.state.onload(board.autostart)
