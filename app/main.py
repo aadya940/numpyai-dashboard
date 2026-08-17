@@ -1338,11 +1338,15 @@ class Board:
             )
             text = (
                 f"{phrase_value(result.value)}{retried}\n\n"
-                f"I've pinned it as **#{block.number}** on the board, top left - "
-                "it will follow the filters."
+                f"Pinned as **#{block.number}** on the board - it will "
+                "follow the filters."
             )
+            # The answer belongs where the question was asked: a compact
+            # rendering rides in the reply, the board keeps the live copy.
+            mini = render_value(result.value, height=190)
             return pn.Column(
                 pn.pane.Markdown(text),
+                mini,
                 pn.Accordion(
                     (
                         "how I computed it",
@@ -1351,6 +1355,7 @@ class Board:
                     active=[],
                     stylesheets=[ACCORDION_CSS],
                 ),
+                sizing_mode="stretch_width",
             )
         reasons = "\n".join(f"- {e}" for e in result.errors[-3:])
         return (
