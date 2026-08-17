@@ -67,8 +67,8 @@
     const menu = document.createElement("div");
     menu.style.cssText =
       "position:fixed;z-index:10000;display:none;" +
-      "background:#fff;border:1px solid #e5e7eb;border-radius:10px;" +
-      "box-shadow:0 8px 24px rgba(15,23,42,.18);padding:4px;" +
+      "background:#141d33;border:1px solid rgba(255,255,255,.12);border-radius:10px;" +
+      "box-shadow:0 10px 30px rgba(0,0,0,.5);padding:4px;" +
       "min-width:190px;font-size:12.5px;font-family:Inter,system-ui,sans-serif;";
     document.body.appendChild(menu);
     return menu;
@@ -106,8 +106,8 @@
           row.style.cssText =
             "padding:6px 10px;border-radius:7px;cursor:pointer;" +
             (i === active
-              ? "background:#eef2ff;color:#4338ca;font-weight:600;"
-              : "color:#374151;");
+              ? "background:#243356;color:#aab8ff;font-weight:600;"
+              : "color:#c3cddf;");
           row.addEventListener("mousedown", (e) => {
             e.preventDefault();
             pick(i);

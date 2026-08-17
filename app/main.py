@@ -52,25 +52,25 @@ load_dotenv(REPO / "examples" / ".env")
 
 SAMPLE = REPO / "examples" / "sample_sales.xlsx"
 
-ACCENT = "#6366F1"
-PALETTE = ["#6366F1", "#22C55E", "#F59E0B", "#EF4444", "#06B6D4", "#A855F7"]
+ACCENT = "#7C9AFF"
+PALETTE = ["#7C9AFF", "#4FD1C5", "#F6BD6B", "#F97583", "#6EDDF6", "#C39BF7"]
 PEAK = "#F59E0B"
 CARD_CSS = {
     "border-radius": "14px",
     "box-shadow": "0 1px 2px rgba(15,23,42,.04), 0 4px 14px rgba(15,23,42,.05)",
-    "border": "1px solid #e7e9ee",
+    "border": "1px solid rgba(255,255,255,.08)",
 }
 ACCORDION_CSS = """
 .accordion { border: none !important; box-shadow: none !important;
-  background: #f8fafc; border-radius: 8px; }
+  background: #182339; border-radius: 8px; }
 button.accordion-header { background: transparent; border: none;
-  color: #6b7280; font-size: 12px; padding: 6px 10px; font-weight: 500; }
-button.accordion-header:hover { color: #111827; }
+  color: #9aa8c6; font-size: 12px; padding: 6px 10px; font-weight: 500; }
+button.accordion-header:hover { color: #eef2fa; }
 """
 
 DROPPER_CSS = """
 .filepond--root { margin-bottom: 0; }
-.filepond--panel-root { background: #f8fafc; border: 1px dashed #d1d5db;
+.filepond--panel-root { background: #182339; border: 1px dashed #d1d5db;
   border-radius: 10px; }
 .filepond--drop-label, .filepond--drop-label label {
   color: #9ca3af; font-size: 12.5px; }
@@ -78,20 +78,22 @@ DROPPER_CSS = """
 
 TABLE_CSS = """
 .tabulator { border: none; background: transparent; }
-.tabulator .tabulator-header { border-bottom: 1px solid #e5e7eb;
+.tabulator .tabulator-header { border-bottom: 1px solid rgba(255,255,255,.10);
   background: transparent; }
 .tabulator .tabulator-header .tabulator-col { background: transparent; }
-.tabulator-col-title { font-size: 12px; color: #6b7280; font-weight: 600; }
-.tabulator-row { font-size: 12.5px; color: #1f2937; }
-.tabulator-row.tabulator-row-even { background: #fafbfc; }
+.tabulator-col-title { font-size: 12px; color: #9aa8c6; font-weight: 600; }
+.tabulator-row { font-size: 12.5px; color: #dbe3f1; }
+.tabulator-row.tabulator-row-even { background: #0f1830; }
 """
 
 AXIS = {
     "axisLine": {"show": False},
     "axisTick": {"show": False},
-    "axisLabel": {"color": "#64748b", "fontSize": 11},
+    "axisLabel": {"color": "#8ea0bf", "fontSize": 11},
 }
-GRIDLINES = {"splitLine": {"lineStyle": {"type": "dashed", "color": "#e2e8f0"}}}
+GRIDLINES = {
+    "splitLine": {"lineStyle": {"type": "dashed", "color": "rgba(255,255,255,.08)"}}
+}
 
 _KEY_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 HAS_KEY = any(os.getenv(v) for v in _KEY_VARS)
@@ -191,8 +193,8 @@ def _echarts_spec(series: pd.Series) -> dict:
         "x2": 0,
         "y2": 1,
         "colorStops": [
-            {"offset": 0, "color": "rgba(99,102,241,.35)"},
-            {"offset": 1, "color": "rgba(99,102,241,0)"},
+            {"offset": 0, "color": "rgba(124,154,255,.35)"},
+            {"offset": 1, "color": "rgba(124,154,255,0)"},
         ],
     }
     return {
@@ -244,6 +246,40 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
     if isinstance(value, pd.Series) and np.issubdtype(
         np.asarray(value.to_numpy()).dtype, np.number
     ):
+        if chart == "donut" and len(value) <= 8:
+            return pn.pane.ECharts(
+                {
+                    "color": PALETTE,
+                    "tooltip": {"trigger": "item"},
+                    "legend": {
+                        "orient": "vertical",
+                        "right": 6,
+                        "top": "center",
+                        "textStyle": {"color": "#9db0d6", "fontSize": 11},
+                    },
+                    "series": [
+                        {
+                            "type": "pie",
+                            "radius": ["52%", "78%"],
+                            "center": ["38%", "50%"],
+                            "label": {"show": False},
+                            "itemStyle": {
+                                "borderColor": "#121a2e",
+                                "borderWidth": 2,
+                                "borderRadius": 4,
+                            },
+                            "data": [
+                                {"name": str(k), "value": round(float(v), 2)}
+                                for k, v in value.items()
+                                if pd.notna(v)
+                            ],
+                        }
+                    ],
+                },
+                height=height,
+                sizing_mode="stretch_width",
+                theme="light",
+            )
         if len(value) > 30 or chart == "table":
             return pn.widgets.Tabulator(
                 value.to_frame(),
@@ -254,6 +290,11 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
         spec = _echarts_spec(value)
         if chart in ("bar", "line"):
             spec["series"][0]["type"] = chart
+        if chart == "hbar":
+            spec["series"][0]["type"] = "bar"
+            spec["xAxis"], spec["yAxis"] = spec["yAxis"], spec["xAxis"]
+            spec["series"][0]["itemStyle"] = {"borderRadius": [0, 6, 6, 0]}
+            spec["series"][0].pop("markPoint", None)
         pane = pn.pane.ECharts(
             spec, height=height, sizing_mode="stretch_width", theme="light"
         )
@@ -317,7 +358,7 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
             parts.append(
                 pn.pane.Markdown(
                     f"<span style='font-weight:600;font-size:12px;"
-                    f"color:#6b7280'>{key}</span>",
+                    f"color:#9aa8c6'>{key}</span>",
                     margin=(4, 8, 0, 8),
                 )
             )
@@ -348,7 +389,7 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
             value=round(float(value)) if big else round(float(value), 2),
             format="{value:,}",
             font_size="38pt",
-            default_color="#111827",
+            default_color="#eef2fa",
             sizing_mode="stretch_width",
             styles={"padding": "14px 8px"},
         )
@@ -405,7 +446,7 @@ class Block:
         self.fresh = True
         self.source: str | None = None
         self.chart_choice = pn.widgets.Select(
-            options=["auto", "bar", "line", "scatter", "table"],
+            options=["auto", "bar", "hbar", "line", "scatter", "donut", "table"],
             value="auto",
             width=76,
             align="end",
@@ -417,7 +458,7 @@ class Block:
         # and retries earn a badge.
         if not ok:
             verdict_pill = (
-                " <span style='background:#fee2e2;color:#b91c1c;padding:1px 8px;"
+                " <span style='background:rgba(239,68,68,.16);color:#f6a5a5;padding:1px 8px;"
                 "border-radius:999px;font-size:11px;font-weight:600'>failed</span>"
             )
         elif result.attempts > 1:
@@ -428,7 +469,7 @@ class Block:
         else:
             verdict_pill = ""
         number_pill = (
-            f"<span style='background:#f1f3f9;color:#64748b;padding:1px 7px;"
+            f"<span style='background:#1d2946;color:#9db0d6;padding:1px 7px;"
             f"border-radius:6px;font-size:11px;font-weight:600'>#{number}</span>"
         )
         self.expanded = False
@@ -456,8 +497,8 @@ class Block:
             margin=(0, 12, 2, 12),
             styles={
                 "font-size": "12.5px",
-                "color": "#1f2937",
-                "background": "#f8fafc",
+                "color": "#dbe3f1",
+                "background": "#182339",
                 "border-radius": "8px",
                 "padding": "5px 10px",
             },
@@ -475,7 +516,7 @@ class Block:
             self._controls,
             pn.pane.Markdown(
                 f"{number_pill}&nbsp; <span style='font-weight:600;"
-                f"font-size:13.5px;color:#111827'>{question}</span>"
+                f"font-size:13.5px;color:#eef2fa'>{question}</span>"
                 f"{verdict_pill}",
                 margin=(2, 34, 0, 10),
                 sizing_mode="stretch_width",
@@ -483,7 +524,7 @@ class Block:
             self.takeaway,
             self._body,
             code_view,
-            styles={"background": "#ffffff", "padding": "12px 14px", **CARD_CSS},
+            styles={"background": "#121a2e", "padding": "12px 14px", **CARD_CSS},
             width=470,
             margin=(0, 12, 12, 0),
         )
@@ -574,13 +615,13 @@ class Board:
             css_classes=["math"],
             sizing_mode="stretch_width",
             styles={
-                "background": "linear-gradient(135deg,#f6f7ff 0%,#fdfdff 70%)",
-                "border": "1px solid #e4e6f7",
+                "background": "linear-gradient(135deg,#151f38 0%,#121a2e 70%)",
+                "border": "1px solid rgba(124,154,255,.22)",
                 "padding": "12px 18px",
                 "border-radius": "14px",
                 "font-size": "13.5px",
                 "line-height": "1.62",
-                "color": "#334155",
+                "color": "#c3cddf",
                 "max-width": "980px",
             },
         )
@@ -631,8 +672,8 @@ class Board:
                 "stylesheets": [
                     """
                     .message {
-                      background: #f6f7f9;
-                      border: 1px solid #eceef2;
+                      background: #172138;
+                      border: 1px solid rgba(255,255,255,.08);
                       border-radius: 12px;
                       font-size: 13px;
                       line-height: 1.55;
@@ -1040,7 +1081,7 @@ class Board:
     def _rebuild_grid(self) -> None:
         n = len(self.blocks)
         self.board_caption.object = (
-            f"<span style='font-weight:600;font-size:13.5px;color:#111827'>"
+            f"<span style='font-weight:600;font-size:13.5px;color:#eef2fa'>"
             f"Board</span> <span style='color:#9ca3af;font-size:12px'>"
             f"{n} block{'s' if n != 1 else ''} - click a bar or point to "
             f"filter</span>"
@@ -1320,7 +1361,7 @@ left = pn.Column(
     pn.pane.Markdown(
         f"<span style='display:inline-block;width:9px;height:9px;"
         f"border-radius:50%;background:{ACCENT};margin-right:7px'></span>"
-        "<span style='color:#111827;font-size:17px;font-weight:700'>"
+        "<span style='color:#eef2fa;font-size:17px;font-weight:700'>"
         "numpyai</span> <span style='color:#9ca3af;font-size:17px'>"
         "dashboard</span>",
         margin=(10, 14, 0, 14),
@@ -1334,7 +1375,7 @@ left = pn.Column(
     board.chat,
     pn.Row(board.file_input, board.forget_button, margin=(2, 8, 6, 8)),
     width=430,
-    styles={"background": "#ffffff", "padding": "6px", **CARD_CSS},
+    styles={"background": "#121a2e", "padding": "6px", **CARD_CSS},
     sizing_mode="stretch_height",
 )
 
@@ -1350,17 +1391,17 @@ filter_bar = pn.Row(
     board.status,
     align="center",
     sizing_mode="stretch_width",
-    styles={"background": "#ffffff", "padding": "4px 10px", **CARD_CSS},
+    styles={"background": "#121a2e", "padding": "4px 10px", **CARD_CSS},
 )
 
 data_card = pn.Column(
     pn.pane.Markdown(
-        "<span style='font-weight:600;font-size:13.5px;color:#111827'>" "Data</span>",
+        "<span style='font-weight:600;font-size:13.5px;color:#eef2fa'>" "Data</span>",
         margin=(8, 14, 0, 14),
     ),
     board.table,
     sizing_mode="stretch_width",
-    styles={"background": "#ffffff", "padding": "6px", **CARD_CSS},
+    styles={"background": "#121a2e", "padding": "6px", **CARD_CSS},
 )
 
 right = pn.Column(
@@ -1375,30 +1416,50 @@ right = pn.Column(
 
 pn.config.raw_css.append("""
 body {
-  background: #f4f5f8;
+  background: #0b1220;
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
   font-feature-settings: 'cv02', 'tnum';
-  color: #111827;
+  color: #eef2fa;
 }
-:root { --design-primary-color: #6366F1; }
+:root { --design-primary-color: #7C9AFF; color-scheme: dark; }
+.bk-input {
+  background: #0f1830 !important; color: #e6eaf3 !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+}
+.bk-input::placeholder { color: #7f8db0 !important; }
+.bk-btn-light, .bk-btn-default {
+  background: #16203a !important; color: #c3cddf !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+}
+.bk-btn-light:hover, .bk-btn-default:hover { background: #1d2946 !important; }
+.bk-btn-primary {
+  background: #4f6ef7 !important; border-color: #4f6ef7 !important;
+}
+.choices__list--dropdown, .choices[data-type*=select-multiple] .choices__list {
+  background: #141d33 !important; color: #dbe3f1 !important;
+}
+.choices__item--choice { color: #dbe3f1 !important; }
+.choices__item--choice.is-highlighted { background: #243356 !important; }
+select.bk-input option { background: #141d33; }
 .npi-card { position: relative; transition: box-shadow .15s ease, transform .15s ease; }
 .npi-card:hover {
-  box-shadow: 0 6px 20px rgba(15,23,42,.10) !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45) !important;
   transform: translateY(-2px);
 }
 .npi-ghost { opacity: .35; }
 :host(.flt) .choices__inner, :host(.flt) input.bk-input {
-  border: 1px solid #e5e7eb; border-radius: 9px; font-size: 12.5px;
-  min-height: 32px; background: #fafbfc;
+  border: 1px solid rgba(255,255,255,.10); border-radius: 9px; font-size: 12.5px;
+  min-height: 32px; background: #0f1830;
 }
 :host(.flt) .choices__input::placeholder,
 :host(.flt) input.bk-input::placeholder { color: #9ca3af; }
 .card-controls {
   position: absolute; top: 8px; right: 8px; z-index: 5;
   opacity: 0; transition: opacity .15s ease;
-  background: rgba(255,255,255,.95); border: 1px solid #eceef2;
+  background: rgba(20,29,51,.95) !important;
+  border: 1px solid rgba(255,255,255,.10);
   border-radius: 9px; padding: 2px; box-shadow: 0 2px 10px rgba(15,23,42,.10);
 }
 :host(.npi-card:hover) .card-controls { opacity: 1; }
