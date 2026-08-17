@@ -32,7 +32,8 @@ def test_prompt_frames_examples_use_real_names(two_tables):
 
 def test_prompt_frames_carries_feedback_and_history(two_tables):
     prompt = prompt_frames(
-        "x", two_tables,
+        "x",
+        two_tables,
         prior_feedback="wrong table",
         history=[("earlier q", "code", "desc")],
     )

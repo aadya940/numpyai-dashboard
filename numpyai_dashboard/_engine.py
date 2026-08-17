@@ -119,6 +119,7 @@ def _generate(
     response = CodeResponse(
         code=clean_code(response.code),
         advice=getattr(response, "advice", ""),
+        chat_only=getattr(response, "chat_only", False),
         explanation=response.explanation,
     )
 
@@ -229,6 +230,7 @@ def run_chat(
                     code=response.code,
                     description=str(explainer or ""),
                     judgment=judgment,
+                    chat_only=response.chat_only,
                     attempts=attempt,
                     errors=errors,
                 )

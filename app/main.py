@@ -502,6 +502,15 @@ class Board:
         #: shared across the per-question frames so "explain it" has a referent
         self._chat_history: list[tuple[str, str, str]] = []
         self.memories: dict[str, object] = {self.active: self._make_memory(self.active)}
+        # Sinks are the JS side-channels (drag order in, file names out for
+        # the @ autocomplete); they must exist before the first chip render.
+        self._order_sink = pn.widgets.TextInput(
+            visible=False, css_classes=["order-sink"], width=0
+        )
+        self._order_sink.param.watch(self._on_drag_order, "value")
+        self._files_sink = pn.widgets.TextInput(
+            visible=False, css_classes=["files-sink"], width=0
+        )
         self.file_chips = pn.Row(margin=(0, 6))
         self._render_chips()
         self._texter = NumpyCodeGen(
@@ -557,13 +566,10 @@ class Board:
             margin=(6, 4, 0, 0),
         )
         retell.on_click(lambda _e: asyncio.create_task(self.retell()))
-        self._order_sink = pn.widgets.TextInput(
-            visible=False, css_classes=["order-sink"], width=0
-        )
-        self._order_sink.param.watch(self._on_drag_order, "value")
         self.board_header = pn.Row(
             self.board_caption,
             self._order_sink,
+            self._files_sink,
             pn.Spacer(sizing_mode="stretch_width"),
             retell,
             clear,
@@ -651,6 +657,7 @@ class Board:
         return self.memories.get(self.active)
 
     def _render_chips(self) -> None:
+        self._files_sink.value = ",".join(self.files)
         chips = []
         removable = len(self.files) > 1
         for name in self.files:
@@ -789,19 +796,24 @@ class Board:
         for name, info in summary.items():
             if info.get("kind") == "text" and "categories" in info:
                 w = pn.widgets.MultiChoice(
-                    name=name, options=info["categories"], width=168, margin=(0, 4)
+                    name="",
+                    placeholder=name,
+                    options=info["categories"],
+                    width=168,
+                    margin=(8, 5),
+                    css_classes=["flt"],
                 )
                 self._filter_widgets.append((name, "cat", w))
                 widgets.append(w)
             elif info.get("kind") == "datetime" and "min" in info:
                 col = self.frame.data[name]
-                w = pn.widgets.DateRangeSlider(
-                    name=name,
-                    start=col.min(),
-                    end=col.max(),
-                    value=(col.min(), col.max()),
-                    width=230,
-                    margin=(0, 8),
+                w = pn.widgets.DatetimeRangePicker(
+                    name="",
+                    value=(col.min().to_pydatetime(), col.max().to_pydatetime()),
+                    enable_time=False,
+                    width=215,
+                    margin=(8, 5),
+                    css_classes=["flt"],
                 )
                 self._filter_widgets.append((name, "date", w))
                 widgets.append(w)
@@ -1116,6 +1128,11 @@ class Board:
                     stylesheets=[ACCORDION_CSS],
                 ),
             )
+        if result.ok and result.chat_only:
+            # A conversational fact: answer inline, keep the board clean.
+            return pn.pane.Markdown(
+                f"{phrase_value(result.value) or str(result.value)}"
+            )
         if result.ok:
             was_multi = getattr(self, "_last_was_multi", False)
             block = self.add_block(
@@ -1286,14 +1303,15 @@ filter_bar = pn.Row(
     pn.pane.Markdown(
         "<span style='color:#9ca3af;font-size:11px;font-weight:600;"
         "letter-spacing:.08em'>FILTERS</span>",
-        margin=(18, 2, 0, 14),
-        align="start",
+        margin=(0, 2, 0, 14),
+        align="center",
     ),
     board.filters,
     pn.Spacer(sizing_mode="stretch_width"),
     board.status,
+    align="center",
     sizing_mode="stretch_width",
-    styles={"background": "#ffffff", "padding": "2px 8px 8px 8px", **CARD_CSS},
+    styles={"background": "#ffffff", "padding": "4px 10px", **CARD_CSS},
 )
 
 data_card = pn.Column(
@@ -1332,6 +1350,12 @@ body {
   transform: translateY(-2px);
 }
 .npi-ghost { opacity: .35; }
+:host(.flt) .choices__inner, :host(.flt) input.bk-input {
+  border: 1px solid #e5e7eb; border-radius: 9px; font-size: 12.5px;
+  min-height: 32px; background: #fafbfc;
+}
+:host(.flt) .choices__input::placeholder,
+:host(.flt) input.bk-input::placeholder { color: #9ca3af; }
 .card-controls {
   position: absolute; top: 8px; right: 8px; z-index: 5;
   opacity: 0; transition: opacity .15s ease;

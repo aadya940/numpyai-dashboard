@@ -289,7 +289,6 @@ def test_advice_turns_are_remembered_in_history(sales):
     assert f.history[0][0] == "where to start?"
 
 
-
 def test_judge_sees_the_conversation(sales):
     """'Do the first one' must be reviewed inside the conversation: the
     generator resolves it through history, and a context-blind judge then
@@ -298,3 +297,29 @@ def test_judge_sees_the_conversation(sales):
     f.chat("units by region")
     f.chat("now do the first one again")
     assert "units by region" in f._code_generator.last_context
+
+
+def test_chat_only_flag_travels_to_the_result(sales):
+    class QuickFactGen:
+        last_prompt = ""
+
+        def generate_code(self, prompt):
+            from numpyai_dashboard._ai import CodeResponse
+
+            return CodeResponse(
+                code="output = len(df)\nmetadata = 'row count'",
+                chat_only=True,
+                explanation="counts",
+            )
+
+        def judge(self, query, code, metadata, context=""):
+            from numpyai_dashboard._ai import Judgment
+
+            return Judgment(interprets_query_correctly=True)
+
+    f = frame(sales)
+    f._code_generator = QuickFactGen()
+    result = f.chat("how many rows?")
+    assert result.ok is True
+    assert result.value == 4
+    assert result.chat_only is True

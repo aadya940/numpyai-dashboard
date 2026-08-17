@@ -1,7 +1,7 @@
-// Drag-reorder for board cards. Panel renders everything inside nested shadow
-// roots, so the flex container is found by walking them; Sortable then works
-// on the real children, and the resulting order is reported to the server
-// through a hidden text input.
+// Client-side behaviours Panel widgets cannot express: drag-reorder for board
+// cards and @-mention autocomplete in the chat input. Panel renders inside
+// nested shadow roots, so both find their targets by walking them; state flows
+// to and from the server through hidden text inputs.
 (function () {
   function* walk(root) {
     for (const el of root.querySelectorAll("*")) {
@@ -10,9 +10,9 @@
     }
   }
 
-  function findSinkInput() {
+  function findSink(cls) {
     for (const el of walk(document)) {
-      if (el.classList && el.classList.contains("order-sink") && el.shadowRoot) {
+      if (el.classList && el.classList.contains(cls) && el.shadowRoot) {
         const input = el.shadowRoot.querySelector("input");
         if (input) return input;
       }
@@ -20,19 +20,21 @@
     return null;
   }
 
-  function report(container) {
+  // -- drag reorder ---------------------------------------------------------
+
+  function reportOrder(container) {
     const order = [...container.children]
       .map((c) => (String(c.className).match(/card-(\d+)/) || [])[1])
       .filter(Boolean)
       .join(",");
-    const input = findSinkInput();
+    const input = findSink("order-sink");
     if (input && order) {
       input.value = order;
       input.dispatchEvent(new Event("change", { bubbles: true }));
     }
   }
 
-  function attach() {
+  function attachSortable() {
     if (!window.Sortable) return;
     for (const host of walk(document)) {
       if (!host.classList || !host.classList.contains("board-flex")) continue;
@@ -46,10 +48,118 @@
         delay: 120,
         delayOnTouchOnly: false,
         ghostClass: "npi-ghost",
-        onEnd: () => report(inner),
+        onEnd: () => reportOrder(inner),
       });
     }
   }
 
-  setInterval(attach, 800);
+  // -- @mention autocomplete -------------------------------------------------
+
+  function fileNames() {
+    const input = findSink("files-sink");
+    return input && input.value ? input.value.split(",").filter(Boolean) : [];
+  }
+
+  function buildMenu(textarea) {
+    const menu = document.createElement("div");
+    menu.style.cssText =
+      "position:absolute;bottom:calc(100% + 6px);left:8px;z-index:50;" +
+      "background:#fff;border:1px solid #e5e7eb;border-radius:10px;" +
+      "box-shadow:0 8px 24px rgba(15,23,42,.14);padding:4px;display:none;" +
+      "min-width:180px;font-size:12.5px;";
+    const parent = textarea.parentElement;
+    parent.style.position = "relative";
+    parent.appendChild(menu);
+    return menu;
+  }
+
+  function attachMention() {
+    for (const host of walk(document)) {
+      if (!host.classList) continue;
+      if (!String(host.className).includes("chatarea")) continue;
+      if (!host.shadowRoot || host._npiMention) continue;
+      const textarea = host.shadowRoot.querySelector("textarea");
+      if (!textarea) continue;
+      host._npiMention = true;
+
+      const menu = buildMenu(textarea);
+      let items = [];
+      let active = 0;
+
+      const hide = () => {
+        menu.style.display = "none";
+        items = [];
+      };
+
+      const render = () => {
+        menu.innerHTML = "";
+        items.forEach((name, i) => {
+          const row = document.createElement("div");
+          row.textContent = "@" + name;
+          row.style.cssText =
+            "padding:6px 10px;border-radius:7px;cursor:pointer;" +
+            (i === active
+              ? "background:#eef2ff;color:#4338ca;font-weight:600;"
+              : "color:#374151;");
+          row.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            pick(i);
+          });
+          menu.appendChild(row);
+        });
+        menu.style.display = items.length ? "block" : "none";
+      };
+
+      const pick = (i) => {
+        const name = items[i];
+        const caret = textarea.selectionStart;
+        const before = textarea.value.slice(0, caret);
+        const after = textarea.value.slice(caret);
+        textarea.value =
+          before.replace(/@([\w.\-]*)$/, "@" + name + " ") + after;
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+        textarea.focus();
+        hide();
+      };
+
+      textarea.addEventListener("input", () => {
+        const before = textarea.value.slice(0, textarea.selectionStart);
+        const match = before.match(/(^|\s)@([\w.\-]*)$/);
+        if (!match) return hide();
+        const token = match[2].toLowerCase();
+        items = fileNames().filter((n) => n.toLowerCase().includes(token));
+        active = 0;
+        render();
+      });
+
+      textarea.addEventListener(
+        "keydown",
+        (e) => {
+          if (!items.length) return;
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            active =
+              (active + (e.key === "ArrowDown" ? 1 : items.length - 1)) %
+              items.length;
+            render();
+          } else if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            pick(active);
+          } else if (e.key === "Escape") {
+            hide();
+          }
+        },
+        true
+      );
+
+      textarea.addEventListener("blur", () => setTimeout(hide, 150));
+    }
+  }
+
+  setInterval(() => {
+    attachSortable();
+    attachMention();
+  }, 800);
 })();

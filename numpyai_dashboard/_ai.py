@@ -79,6 +79,14 @@ class CodeResponse(BaseModel):
             "answering with `code`."
         ),
     )
+    chat_only: bool = Field(
+        default=False,
+        description=(
+            "True when the answer is a quick fact that belongs in the "
+            "conversation, not on a dashboard - a row count, a yes/no, a "
+            "single lookup. False for any analysis worth keeping as a card."
+        ),
+    )
     explanation: str = Field(
         description="One-sentence natural-language explanation of the response."
     )
@@ -132,6 +140,10 @@ class ChatResult(BaseModel):
     )
     judgment: Judgment | None = Field(
         default=None, description="Verdict on the final attempt, if one was reached."
+    )
+    chat_only: bool = Field(
+        default=False,
+        description="The model judged this a conversational fact, not a card.",
     )
     attempts: int = Field(default=0, description="Attempts made, successful or not.")
     errors: list[str] = Field(
@@ -474,6 +486,8 @@ CRITICAL INSTRUCTIONS:
    that" - that refers to the conversation above: compute it now with `code`.
    For several related results, return a dict of labelled outputs. Never ask
    the user to pick one at a time.
+   For a quick conversational fact - a row count, a yes/no, one looked-up
+   value nobody would pin to a dashboard - set `chat_only` to true.
 7. There MUST be exactly one variable named `output` containing what was asked for.
    If the user asked for a plot, `output` must be the Figure itself
    (`output = plt.gcf()`) - a plot drawn as a side effect is discarded.
