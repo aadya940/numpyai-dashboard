@@ -195,6 +195,10 @@ def texify(text: str) -> str:
         display = match.group(1) is not None
         tex = match.group(1) if display else match.group(2)
         if not display and not _looks_like_tex(tex):
+            # $29.55$ from the model is a math-wrapped number, not currency
+            # twice: render the number bare. True prose spans stay as written.
+            if re.fullmatch(r"[\d.,%+\-]+", tex):
+                return tex
             return match.group(0)
         blob = base64.b64encode(tex.encode()).decode()
         return (
@@ -1133,7 +1137,7 @@ class Board:
                 )
                 self._filter_widgets.append((name, "date", w))
                 widgets.append(w)
-            if len(widgets) >= 4:
+            if len(widgets) >= 5:
                 break
         for _, _, w in self._filter_widgets:
             w.param.watch(lambda _: self._on_filter(), "value")
@@ -1275,9 +1279,21 @@ class Board:
         if widget is not None:
             # value_input prefills without submitting; .value would auto-send
             # and spend a model call the user never asked for.
-            widget.value_input = f"Drill into {label}: {block.question}"
+            widget.value_input = (
+                f"Focus on {label} only and break it down by a dimension "
+                f"not already shown (context: {block.question})"
+            )
 
     # -- blocks ---------------------------------------------------------------
+
+    def find_duplicate(self, result: ChatResult) -> Block | None:
+        fingerprint = "".join(result.code.split())
+        if not fingerprint:
+            return None
+        for b in self.blocks:
+            if "".join(b.result.code.split()) == fingerprint:
+                return b
+        return None
 
     def add_block(
         self, result: ChatResult, question: str, source: str | None = "active"
@@ -1363,6 +1379,7 @@ class Board:
             compact = kind == "kpi" and not b.expanded
             b.takeaway.visible = not compact and bool(b.takeaway.object)
             b.code_view.visible = not compact
+            b.code_view.active = []
             if b.expanded:
                 b.panel.width = 962
             elif compact:
@@ -1487,6 +1504,15 @@ class Board:
                 css_classes=["math"],
             )
         if result.ok:
+            dup = self.find_duplicate(result)
+            if dup is not None:
+                dup.fresh = True
+                self._rebuild_grid()
+                return pn.pane.Markdown(
+                    f"That computes exactly what **#{dup.number}** already "
+                    f"shows - I've highlighted it on the board instead of "
+                    "pinning a copy."
+                )
             was_multi = getattr(self, "_last_was_multi", False)
             block = self.add_block(
                 result, contents, source=None if was_multi else "active"
