@@ -291,8 +291,15 @@ def _echarts_spec(series: pd.Series) -> dict:
 
 
 def _display_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    """A copy formatted for humans: datetimes as dates, not epoch millis."""
+    """A copy formatted for humans: datetimes as dates, not epoch millis.
+
+    A meaningful index (dates, group keys) becomes a visible column first -
+    show_index=False otherwise amputates exactly the labels that give the
+    numbers their meaning.
+    """
     out = frame.copy()
+    if not isinstance(out.index, pd.RangeIndex):
+        out = out.reset_index()
     for col in out.columns:
         if pd.api.types.is_datetime64_any_dtype(out[col]):
             out[col] = out[col].dt.strftime("%Y-%m-%d")
@@ -366,6 +373,94 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
         return pane
 
     if isinstance(value, pd.DataFrame):
+        numeric_cols = [
+            c for c in value.columns if pd.api.types.is_numeric_dtype(value[c])
+        ]
+        time_index = isinstance(value.index, (pd.DatetimeIndex, pd.PeriodIndex))
+        labelled_index = not isinstance(value.index, pd.RangeIndex)
+        legend = {
+            "top": 0,
+            "right": 0,
+            "textStyle": {"color": "#9db0d6", "fontSize": 11},
+        }
+        # Datetime-indexed metrics are a trend: multi-series line.
+        if (
+            chart in (None, "line")
+            and time_index
+            and 1 <= len(numeric_cols) <= 4
+            and 1 < len(value) <= 500
+        ):
+            x = [str(i)[:10] for i in value.index]
+            return pn.pane.ECharts(
+                {
+                    "color": PALETTE,
+                    "tooltip": {"trigger": "axis"},
+                    "legend": legend if len(numeric_cols) > 1 else None,
+                    "grid": {"left": 56, "right": 12, "top": 30, "bottom": 42},
+                    "xAxis": {
+                        "type": "category",
+                        "data": x,
+                        **AXIS,
+                        "axisLabel": {**AXIS["axisLabel"], "rotate": 30},
+                    },
+                    "yAxis": {"type": "value", **AXIS, **GRIDLINES},
+                    "series": [
+                        {
+                            "type": "line",
+                            "name": str(c),
+                            "smooth": True,
+                            "showSymbol": len(value) <= 40,
+                            "lineStyle": {"width": 2.5},
+                            "data": [
+                                None if pd.isna(v) else round(float(v), 2)
+                                for v in value[c]
+                            ],
+                        }
+                        for c in numeric_cols
+                    ],
+                },
+                height=height,
+                sizing_mode="stretch_width",
+                theme="light",
+            )
+        # A labelled pivot (regions x products) is grouped bars, not a table.
+        if (
+            chart in (None, "bar")
+            and labelled_index
+            and not time_index
+            and 2 <= len(numeric_cols) <= 6
+            and 1 < len(value) <= 12
+        ):
+            return pn.pane.ECharts(
+                {
+                    "color": PALETTE,
+                    "tooltip": {"trigger": "axis"},
+                    "legend": legend,
+                    "grid": {"left": 56, "right": 12, "top": 30, "bottom": 42},
+                    "xAxis": {
+                        "type": "category",
+                        "data": [str(i) for i in value.index],
+                        **AXIS,
+                    },
+                    "yAxis": {"type": "value", **AXIS, **GRIDLINES},
+                    "series": [
+                        {
+                            "type": "bar",
+                            "name": str(c),
+                            "barMaxWidth": 26,
+                            "itemStyle": {"borderRadius": [5, 5, 0, 0]},
+                            "data": [
+                                None if pd.isna(v) else round(float(v), 2)
+                                for v in value[c]
+                            ],
+                        }
+                        for c in numeric_cols
+                    ],
+                },
+                height=height,
+                sizing_mode="stretch_width",
+                theme="light",
+            )
         # A (datetime, numeric) pair is a trend: draw the line, don't tabulate
         # epoch milliseconds.
         if (
@@ -434,6 +529,17 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
         # A dict of results renders as labelled sections, never a repr blob.
         parts = []
         for key, item in list(value.items())[:8]:
+            if item is None or (hasattr(item, "__len__") and len(item) == 0):
+                parts.append(
+                    pn.pane.Markdown(
+                        f"<span style='font-weight:600;font-size:12px;"
+                        f"color:#9aa8c6'>{key}</span> "
+                        f"<span style='color:#7f8db0;font-size:12px'>"
+                        f"- none found</span>",
+                        margin=(4, 8, 0, 8),
+                    )
+                )
+                continue
             parts.append(
                 pn.pane.Markdown(
                     f"<span style='font-weight:600;font-size:12px;"

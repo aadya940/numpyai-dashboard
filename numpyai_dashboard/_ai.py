@@ -491,6 +491,9 @@ CRITICAL INSTRUCTIONS:
 7. There MUST be exactly one variable named `output` containing what was asked for.
    If the user asked for a plot, `output` must be the Figure itself
    (`output = plt.gcf()`) - a plot drawn as a side effect is discarded.
+   Per-category or per-date aggregates should keep that key as the INDEX
+   (a Series, or a DataFrame with a datetime or label index) - indexed
+   results render as charts, reset_index tables render as tables.
 8. There MUST be exactly one variable named `metadata` - a short string describing
    `output`.
 
