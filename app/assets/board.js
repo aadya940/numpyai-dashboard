@@ -167,8 +167,61 @@
     }
   }
 
+  // -- LaTeX in model text ----------------------------------------------------
+  // KaTeX styles in <head> do not pierce shadow roots, so the stylesheet is
+  // fetched once, its font URLs made absolute, and adopted into every root
+  // that contains math. Re-renders when a surface's text changes (the story
+  // strip rewrites itself).
+
+  let katexSheet = null;
+  let katexSheetLoading = false;
+
+  function loadKatexSheet() {
+    if (katexSheet || katexSheetLoading) return;
+    katexSheetLoading = true;
+    const base = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/";
+    fetch(base + "katex.min.css")
+      .then((r) => r.text())
+      .then((css) => {
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(css.replaceAll("url(fonts/", "url(" + base + "fonts/"));
+        katexSheet = sheet;
+      })
+      .catch(() => (katexSheetLoading = false));
+  }
+
+  function renderMath() {
+    if (!window.renderMathInElement) return;
+    loadKatexSheet();
+    if (!katexSheet) return;
+    for (const host of walk(document)) {
+      if (!host.classList || !host.classList.contains("math")) continue;
+      const root = host.shadowRoot;
+      if (!root) continue;
+      const text = root.textContent || "";
+      if (host._npiMathText === text) continue;
+      host._npiMathText = text;
+      if (!text.includes("$")) continue;
+      if (!root.adoptedStyleSheets.includes(katexSheet)) {
+        root.adoptedStyleSheets = [...root.adoptedStyleSheets, katexSheet];
+      }
+      try {
+        renderMathInElement(root, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false },
+          ],
+          throwOnError: false,
+        });
+      } catch (e) {
+        /* malformed latex must never break the page */
+      }
+    }
+  }
+
   setInterval(() => {
     attachSortable();
     attachMention();
+    renderMath();
   }, 800);
 })();

@@ -75,8 +75,8 @@ class CodeResponse(BaseModel):
         description=(
             "Only for questions asking HOW to analyse, what to explore, or for "
             "methodology - not for computations. A concise markdown answer that "
-            "names the actual columns of this dataset. Leave empty when "
-            "answering with `code`."
+            "names the actual columns of this dataset; inline LaTeX ($...$) "
+            "renders. Leave empty when answering with `code`."
         ),
     )
     chat_only: bool = Field(

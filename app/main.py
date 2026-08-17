@@ -39,6 +39,11 @@ pn.config.css_files.append(
 )
 pn.config.js_files.update(
     {
+        "katex": "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js",
+        "katex_auto": (
+            "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/"
+            "auto-render.min.js"
+        ),
         "sortable": "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js",
         "npi_board": "/assets/board.js",
     }
@@ -421,6 +426,7 @@ class Block:
         self.takeaway = pn.pane.Markdown(
             f"→ {initial}" if initial else "",
             visible=bool(initial),
+            css_classes=["math"],
             margin=(0, 12, 2, 12),
             styles={
                 "font-size": "12.5px",
@@ -520,7 +526,9 @@ class Board:
                 "quantify it, and flag what a careful analyst would flag - "
                 "tiny leaf samples, a split on one salesperson's name, likely "
                 "overfitting, confounders. Never open with a textbook "
-                "definition; the user asked about THEIR data, not the method."
+                "definition; the user asked about THEIR data, not the method. "
+                "Inline LaTeX ($...$) renders - use it for formulas and "
+                "statistical notation instead of spelling them out."
             )
         )
 
@@ -537,6 +545,7 @@ class Board:
         self.grid_holder = pn.Column(sizing_mode="stretch_width")
         self.story = pn.pane.Markdown(
             visible=False,
+            css_classes=["math"],
             sizing_mode="stretch_width",
             styles={
                 "background": "linear-gradient(135deg,#f6f7ff 0%,#fdfdff 70%)",
@@ -588,6 +597,7 @@ class Board:
             show_button_name=False,
             sizing_mode="stretch_both",
             message_params={
+                "css_classes": ["math"],
                 "show_reaction_icons": False,
                 "show_copy_icon": False,
                 "show_avatar": False,
@@ -911,7 +921,8 @@ class Board:
             "evidence cited as #n, one caveat last) AND one takeaway per "
             "block: the single thing a human should conclude from that block, "
             "with its key number. Ground everything strictly in the material; "
-            "invent nothing."
+            "invent nothing. Inline LaTeX ($...$) renders - use it for any "
+            "formula or statistical notation."
         )
         try:
             result = await asyncio.to_thread(
