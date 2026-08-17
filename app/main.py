@@ -771,7 +771,15 @@ class Board:
                     """
                 ],
             },
-            widgets=[pn.chat.ChatAreaInput(placeholder="Ask about your data...")],
+            widgets=[
+                pn.chat.ChatAreaInput(
+                    placeholder="Ask about your data...",
+                    auto_grow=True,
+                    rows=2,
+                    max_rows=6,
+                    sizing_mode="stretch_width",
+                )
+            ],
         )
         cols = ", ".join(f"`{c}`" for c in list(self.frame.data.columns)[:6])
         self.chat.send(
@@ -1518,6 +1526,10 @@ body {
   border: 1px solid rgba(255,255,255,.10) !important;
 }
 .bk-input::placeholder { color: #7f8db0 !important; }
+textarea.bk-input {
+  min-height: 52px !important; font-size: 13px !important;
+  padding: 10px 12px !important; line-height: 1.5;
+}
 .bk-btn-light, .bk-btn-default {
   background: #16203a !important; color: #c3cddf !important;
   border: 1px solid rgba(255,255,255,.10) !important;
@@ -1559,12 +1571,12 @@ html { scrollbar-color: #2a3860 #0e1526; }
 :host(.flt) input.bk-input::placeholder { color: #9ca3af; }
 .card-controls {
   position: absolute; top: 8px; right: 8px; z-index: 5;
-  opacity: 0; transition: opacity .15s ease;
-  background: rgba(20,29,51,.95) !important;
+  opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  background: rgba(20,29,51,.97) !important;
   border: 1px solid rgba(255,255,255,.10);
-  border-radius: 9px; padding: 2px; box-shadow: 0 2px 10px rgba(15,23,42,.10);
+  border-radius: 9px; padding: 2px; box-shadow: 0 2px 10px rgba(0,0,0,.35);
 }
-:host(.npi-card:hover) .card-controls { opacity: 1; }
+:host(.npi-card:hover) .card-controls { opacity: 1; pointer-events: auto; }
 @keyframes cardflash {
   0%   { box-shadow: 0 0 0 2px #6366F1; }
   100% { box-shadow: 0 1px 2px rgba(15,23,42,.05); }

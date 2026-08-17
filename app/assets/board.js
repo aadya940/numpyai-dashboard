@@ -48,6 +48,20 @@
         delay: 120,
         delayOnTouchOnly: false,
         ghostClass: "npi-ghost",
+        // Never contest gestures over charts, tables or the control cluster:
+        // a click on a bar must reach ECharts, not start a drag. Shadow
+        // retargeting hides the real target, so inspect the composed path.
+        filter: (evt) => {
+          const path = evt.composedPath ? evt.composedPath() : [];
+          return path.some(
+            (el) =>
+              el.tagName === "CANVAS" ||
+              (el.classList &&
+                (el.classList.contains("card-controls") ||
+                  el.classList.contains("tabulator")))
+          );
+        },
+        preventOnFilter: false,
         onEnd: () => reportOrder(inner),
       });
     }
