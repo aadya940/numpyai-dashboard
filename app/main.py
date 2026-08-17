@@ -306,8 +306,9 @@ def render_value(value, chart: str | None = None, on_click=None):
         pass
 
     if isinstance(value, (int, float, np.floating, np.integer)):
+        big = abs(float(value)) >= 1000
         return pn.indicators.Number(
-            value=round(float(value), 2),
+            value=round(float(value)) if big else round(float(value), 2),
             format="{value:,}",
             font_size="38pt",
             default_color="#111827",
@@ -424,6 +425,7 @@ class Block:
                     f"font-size:13.5px;color:#111827'>{question}</span>"
                     f"{verdict_pill}",
                     margin=(2, 10),
+                    sizing_mode="stretch_width",
                 ),
                 self.chart_choice,
                 dismiss,
