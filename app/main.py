@@ -77,10 +77,18 @@ button.accordion-header:hover { color: #eef2fa !important; }
 
 DROPPER_CSS = """
 .filepond--root { margin-bottom: 0; }
-.filepond--panel-root { background: #182339; border: 1px dashed #d1d5db;
-  border-radius: 10px; }
+.filepond--panel-root {
+  background: #10192e !important;
+  border: 1px dashed rgba(255,255,255,.16); border-radius: 10px;
+}
 .filepond--drop-label, .filepond--drop-label label {
-  color: #9ca3af; font-size: 12.5px; }
+  background: transparent !important;
+  color: #93a4c8 !important; font-size: 12.5px;
+}
+.filepond--label-action {
+  color: #aab8ff; text-decoration-color: rgba(170,184,255,.5);
+}
+.filepond--credits { display: none; }
 """
 
 TABLE_CSS = """
@@ -1532,6 +1540,13 @@ select.bk-input option { background: #141d33; }
 .npi-ghost { opacity: .35; }
 .markdown, .markdown p, .markdown li, .markdown td, .markdown th,
 .markdown em, .markdown strong { color: #dbe3f1; }
+:host-context(button.accordion-header) h1,
+:host-context(button.accordion-header) h2,
+:host-context(button.accordion-header) h3,
+:host-context(button.accordion-header) p {
+  color: #93a4c8 !important; font-size: 12px !important;
+  font-weight: 500 !important; margin: 0 !important;
+}
 html { scrollbar-color: #2a3860 #0e1526; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { background: #24304f; border-radius: 8px; }
