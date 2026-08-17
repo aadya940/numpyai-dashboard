@@ -60,17 +60,24 @@
     return input && input.value ? input.value.split(",").filter(Boolean) : [];
   }
 
-  function buildMenu(textarea) {
+  function buildMenu() {
+    // Fixed-position and mounted on <body>: the chat input lives inside an
+    // overflow:auto container that clips anything absolutely positioned
+    // above it - the menu rendered, and no pixel of it was ever visible.
     const menu = document.createElement("div");
     menu.style.cssText =
-      "position:absolute;bottom:calc(100% + 6px);left:8px;z-index:50;" +
+      "position:fixed;z-index:10000;display:none;" +
       "background:#fff;border:1px solid #e5e7eb;border-radius:10px;" +
-      "box-shadow:0 8px 24px rgba(15,23,42,.14);padding:4px;display:none;" +
-      "min-width:180px;font-size:12.5px;";
-    const parent = textarea.parentElement;
-    parent.style.position = "relative";
-    parent.appendChild(menu);
+      "box-shadow:0 8px 24px rgba(15,23,42,.18);padding:4px;" +
+      "min-width:190px;font-size:12.5px;font-family:Inter,system-ui,sans-serif;";
+    document.body.appendChild(menu);
     return menu;
+  }
+
+  function anchor(menu, textarea) {
+    const r = textarea.getBoundingClientRect();
+    menu.style.left = Math.round(r.left) + "px";
+    menu.style.bottom = Math.round(window.innerHeight - r.top + 6) + "px";
   }
 
   function attachMention() {
@@ -82,7 +89,7 @@
       if (!textarea) continue;
       host._npiMention = true;
 
-      const menu = buildMenu(textarea);
+      const menu = buildMenu();
       let items = [];
       let active = 0;
 
@@ -107,8 +114,10 @@
           });
           menu.appendChild(row);
         });
+        anchor(menu, textarea);
         menu.style.display = items.length ? "block" : "none";
       };
+      window.addEventListener("scroll", hide, true);
 
       const pick = (i) => {
         const name = items[i];
