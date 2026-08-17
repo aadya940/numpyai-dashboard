@@ -61,11 +61,18 @@ CARD_CSS = {
     "border": "1px solid rgba(255,255,255,.08)",
 }
 ACCORDION_CSS = """
-.accordion { border: none !important; box-shadow: none !important;
-  background: #182339; border-radius: 8px; }
-button.accordion-header { background: transparent; border: none;
-  color: #9aa8c6; font-size: 12px; padding: 6px 10px; font-weight: 500; }
-button.accordion-header:hover { color: #eef2fa; }
+.accordion {
+  background: #0f1830 !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  box-shadow: none !important; border-radius: 9px;
+}
+button.accordion-header {
+  background: transparent !important; border: none !important;
+  color: #93a4c8 !important; font-size: 12px !important;
+  padding: 7px 12px !important; font-weight: 500;
+}
+button.accordion-header:hover { color: #eef2fa !important; }
+.accordion .card-button { color: #93a4c8 !important; }
 """
 
 DROPPER_CSS = """
@@ -150,6 +157,20 @@ class _BoardStory(BaseModel):
 _TEX_RE = re.compile(r"\$\$(.+?)\$\$|(?<!\\)\$(.+?)(?<!\\)\$", re.DOTALL)
 
 
+def _looks_like_tex(tex: str) -> bool:
+    """Distinguish $x_i^2$ from $333,978.35 ... $0.14 - money is not math.
+
+    A model narrating revenue writes dollar signs constantly; pairing them
+    naively turned a whole sentence into "math" and KaTeX rendered it as red
+    error text. Real TeX either carries TeX syntax or is one short token.
+    """
+    if len(tex) > 160:
+        return False
+    if re.search(r"[\\^_{}=]", tex):
+        return True
+    return " " not in tex and not re.fullmatch(r"[\d.,%+\-]+", tex)
+
+
 def texify(text: str) -> str:
     """Protect $...$ math from markdown, which mangles its underscores.
 
@@ -157,6 +178,7 @@ def texify(text: str) -> str:
     base64-encoded; markdown passes it through untouched and the client
     renders each one with katex.render - no delimiter scanning, so no
     half-rendered red wreckage when markdown has already eaten a token.
+    Spans that read as currency or prose stay exactly as written.
     """
     if "$" not in text:
         return text
@@ -164,6 +186,8 @@ def texify(text: str) -> str:
     def _swap(match: re.Match) -> str:
         display = match.group(1) is not None
         tex = match.group(1) if display else match.group(2)
+        if not display and not _looks_like_tex(tex):
+            return match.group(0)
         blob = base64.b64encode(tex.encode()).decode()
         return (
             f'<span class="npi-tex" data-tex="{blob}"'
@@ -443,9 +467,18 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
 
     if isinstance(value, str):
         text = texify(value)
-        return pn.pane.Markdown(
-            text if len(value) > 60 else f"**{text}**", css_classes=["math"]
-        )
+        if len(value) <= 40:
+            return pn.pane.Markdown(
+                text,
+                css_classes=["math"],
+                styles={
+                    "font-size": "27px",
+                    "font-weight": "600",
+                    "color": "#eef2fa",
+                    "padding": "14px 8px",
+                },
+            )
+        return pn.pane.Markdown(text, css_classes=["math"])
     return pn.pane.Markdown(f"**{value}**")
 
 
@@ -550,7 +583,7 @@ class Block:
                 "padding": "5px 10px",
             },
         )
-        self._body = pn.Column(sizing_mode="stretch_width", min_height=260)
+        self._body = pn.Column(sizing_mode="stretch_width")
         self._redraw()
 
         code_view = pn.Accordion(
