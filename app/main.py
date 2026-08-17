@@ -77,13 +77,30 @@ DROPPER_CSS = """
 """
 
 TABLE_CSS = """
-.tabulator { border: none; background: transparent; }
-.tabulator .tabulator-header { border-bottom: 1px solid rgba(255,255,255,.10);
-  background: transparent; }
-.tabulator .tabulator-header .tabulator-col { background: transparent; }
-.tabulator-col-title { font-size: 12px; color: #9aa8c6; font-weight: 600; }
-.tabulator-row { font-size: 12.5px; color: #dbe3f1; }
-.tabulator-row.tabulator-row-even { background: #0f1830; }
+.tabulator, .tabulator-tableholder, .tabulator-table {
+  background: transparent !important; }
+.tabulator .tabulator-header {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255,255,255,.10) !important; }
+.tabulator .tabulator-header .tabulator-col {
+  background: transparent !important; border-color: transparent !important; }
+.tabulator-col-title {
+  font-size: 12px; color: #9aa8c6 !important; font-weight: 600; }
+.tabulator-row {
+  font-size: 12.5px; color: #dbe3f1 !important;
+  background: transparent !important;
+  border-color: rgba(255,255,255,.06) !important; }
+.tabulator-row .tabulator-cell { border-color: rgba(255,255,255,.06) !important; }
+.tabulator-row.tabulator-row-even { background: #0f1830 !important; }
+.tabulator-row.tabulator-selectable:hover { background: #1a2542 !important; }
+.tabulator-footer {
+  background: transparent !important; color: #9aa8c6 !important;
+  border-top: 1px solid rgba(255,255,255,.10) !important; }
+.tabulator-footer .tabulator-page {
+  background: #16203a !important; color: #c3cddf !important;
+  border: 1px solid rgba(255,255,255,.10) !important; }
+.tabulator-footer .tabulator-page.active { color: #aab8ff !important; }
+.tabulator-loader { background: transparent !important; }
 """
 
 AXIS = {
@@ -241,6 +258,19 @@ def _echarts_spec(series: pd.Series) -> dict:
     }
 
 
+def _display_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """A copy formatted for humans: datetimes as dates, not epoch millis."""
+    out = frame.copy()
+    for col in out.columns:
+        if pd.api.types.is_datetime64_any_dtype(out[col]):
+            out[col] = out[col].dt.strftime("%Y-%m-%d")
+        elif isinstance(out[col].dtype, pd.PeriodDtype):
+            out[col] = out[col].astype(str)
+    if isinstance(out.index, (pd.DatetimeIndex, pd.PeriodIndex)):
+        out.index = out.index.astype(str)
+    return out
+
+
 def render_value(value, chart: str | None = None, on_click=None, height: int = 260):
     """Pick a pane for whatever the generated code produced."""
     if isinstance(value, pd.Series) and np.issubdtype(
@@ -282,10 +312,11 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
             )
         if len(value) > 30 or chart == "table":
             return pn.widgets.Tabulator(
-                value.to_frame(),
+                _display_frame(value.to_frame()),
                 height=height,
                 disabled=True,
                 sizing_mode="stretch_width",
+                stylesheets=[TABLE_CSS],
             )
         spec = _echarts_spec(value)
         if chart in ("bar", "line"):
@@ -303,6 +334,22 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
         return pane
 
     if isinstance(value, pd.DataFrame):
+        # A (datetime, numeric) pair is a trend: draw the line, don't tabulate
+        # epoch milliseconds.
+        if (
+            chart in (None, "line")
+            and value.shape[1] == 2
+            and pd.api.types.is_datetime64_any_dtype(value.iloc[:, 0])
+            and pd.api.types.is_numeric_dtype(value.iloc[:, 1])
+            and 1 < len(value) <= 500
+        ):
+            series = value.set_index(value.columns[0])[value.columns[1]]
+            return pn.pane.ECharts(
+                _echarts_spec(series),
+                height=height,
+                sizing_mode="stretch_width",
+                theme="light",
+            )
         # Two numeric columns is an (x, y) relationship - frequency/amplitude,
         # size/price - and reads as a curve, not 400 rows of a table.
         numeric = value.select_dtypes("number")
@@ -341,7 +388,7 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
                 spec, height=height, sizing_mode="stretch_width", theme="light"
             )
         return pn.widgets.Tabulator(
-            value,
+            _display_frame(value),
             pagination="remote" if len(value) > 10_000 else None,
             page_size=8,
             height=height,
@@ -672,6 +719,7 @@ class Board:
                 "stylesheets": [
                     """
                     .message {
+                      color: #dbe3f1;
                       background: #172138;
                       border: 1px solid rgba(255,255,255,.08);
                       border-radius: 12px;
@@ -1449,6 +1497,12 @@ select.bk-input option { background: #141d33; }
   transform: translateY(-2px);
 }
 .npi-ghost { opacity: .35; }
+.markdown, .markdown p, .markdown li, .markdown td, .markdown th,
+.markdown em, .markdown strong { color: #dbe3f1; }
+html { scrollbar-color: #2a3860 #0e1526; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #24304f; border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
 :host(.flt) .choices__inner, :host(.flt) input.bk-input {
   border: 1px solid rgba(255,255,255,.10); border-radius: 9px; font-size: 12.5px;
   min-height: 32px; background: #0f1830;
