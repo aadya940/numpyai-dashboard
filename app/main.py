@@ -34,6 +34,9 @@ from numpyai_dashboard._ai import (
 from numpyai_dashboard._engine import execute, run_chat
 from numpyai_dashboard._validator import NumpyValidator
 
+pn.config.css_files.append(
+    "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+)
 pn.extension("echarts", "tabulator", "filedropper", notifications=True)
 
 REPO = Path(__file__).resolve().parent.parent
@@ -43,10 +46,11 @@ SAMPLE = REPO / "examples" / "sample_sales.xlsx"
 
 ACCENT = "#6366F1"
 PALETTE = ["#6366F1", "#22C55E", "#F59E0B", "#EF4444", "#06B6D4", "#A855F7"]
+PEAK = "#F59E0B"
 CARD_CSS = {
-    "border-radius": "12px",
-    "box-shadow": "0 1px 2px rgba(15,23,42,.05)",
-    "border": "1px solid #e5e7eb",
+    "border-radius": "14px",
+    "box-shadow": "0 1px 2px rgba(15,23,42,.04), 0 4px 14px rgba(15,23,42,.05)",
+    "border": "1px solid #e7e9ee",
 }
 ACCORDION_CSS = """
 .accordion { border: none !important; box-shadow: none !important;
@@ -182,9 +186,9 @@ def _echarts_spec(series: pd.Series) -> dict:
                 "barMaxWidth": 46,
                 "markPoint": {
                     "data": [{"type": "max", "name": "peak"}],
-                    "symbolSize": 42,
-                    "label": {"fontSize": 10, "color": "#ffffff"},
-                    "itemStyle": {"color": "#0f172a"},
+                    "symbolSize": 44,
+                    "label": {"fontSize": 10, "color": "#3b2f00", "fontWeight": 600},
+                    "itemStyle": {"color": PEAK},
                 },
                 "markLine": (
                     {
@@ -383,8 +387,8 @@ class Block:
         else:
             verdict_pill = ""
         number_pill = (
-            f"<span style='color:#94a3b8;font-size:12px;font-weight:600'>"
-            f"#{number}</span>"
+            f"<span style='background:#f1f3f9;color:#64748b;padding:1px 7px;"
+            f"border-radius:6px;font-size:11px;font-weight:600'>#{number}</span>"
         )
         dismiss = pn.widgets.Button(
             name="✕", width=30, height=26, align="end", button_type="light"
@@ -395,8 +399,14 @@ class Block:
         self.takeaway = pn.pane.Markdown(
             f"→ {initial}" if initial else "",
             visible=bool(initial),
-            margin=(0, 10, 2, 10),
-            styles={"font-size": "12.5px", "color": "#374151"},
+            margin=(0, 12, 2, 12),
+            styles={
+                "font-size": "12.5px",
+                "color": "#1f2937",
+                "background": "#f8fafc",
+                "border-radius": "8px",
+                "padding": "5px 10px",
+            },
         )
         self._body = pn.Column(sizing_mode="stretch_width", min_height=260)
         self._redraw()
@@ -491,14 +501,14 @@ class Board:
             visible=False,
             sizing_mode="stretch_width",
             styles={
-                "background": "#ffffff",
-                "border-left": f"3px solid {ACCENT}",
-                "padding": "10px 16px",
-                "border-radius": "0 12px 12px 0",
-                "box-shadow": "0 1px 2px rgba(15,23,42,.05)",
+                "background": "linear-gradient(135deg,#f6f7ff 0%,#fdfdff 70%)",
+                "border": "1px solid #e4e6f7",
+                "padding": "12px 18px",
+                "border-radius": "14px",
                 "font-size": "13.5px",
-                "line-height": "1.55",
-                "color": "#374151",
+                "line-height": "1.62",
+                "color": "#334155",
+                "max-width": "980px",
             },
         )
         self.board_caption = pn.pane.Markdown(margin=(10, 14, 0, 6))
@@ -542,6 +552,18 @@ class Board:
                 "show_copy_icon": False,
                 "show_avatar": False,
                 "show_timestamp": False,
+                "stylesheets": [
+                    """
+                    .message {
+                      background: #f6f7f9;
+                      border: 1px solid #eceef2;
+                      border-radius: 12px;
+                      font-size: 13px;
+                      line-height: 1.55;
+                      box-shadow: none;
+                    }
+                    """
+                ],
             },
             widgets=[pn.chat.ChatAreaInput(placeholder="Ask about your data...")],
         )
@@ -1228,10 +1250,11 @@ right = pn.Column(
 
 pn.config.raw_css.append("""
 body {
-  background: #f6f7f9;
+  background: #f4f5f8;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
+  font-feature-settings: 'cv02', 'tnum';
   color: #111827;
 }
 :root { --design-primary-color: #6366F1; }
