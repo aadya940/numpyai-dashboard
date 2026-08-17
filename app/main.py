@@ -37,6 +37,12 @@ from numpyai_dashboard._validator import NumpyValidator
 pn.config.css_files.append(
     "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
 )
+pn.config.js_files.update(
+    {
+        "sortable": "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js",
+        "npi_board": "/assets/board.js",
+    }
+)
 pn.extension("echarts", "tabulator", "filedropper", notifications=True)
 
 REPO = Path(__file__).resolve().parent.parent
@@ -395,20 +401,21 @@ class Block:
             f"border-radius:6px;font-size:11px;font-weight:600'>#{number}</span>"
         )
         self.expanded = False
-        menu = pn.widgets.MenuButton(
-            name="⋯",
-            items=[
-                ("Expand", "expand"),
-                ("Move left", "left"),
-                ("Move right", "right"),
-                ("Remove", "remove"),
-            ],
-            width=44,
-            height=26,
-            align="end",
-            button_type="light",
+        expand_btn = pn.widgets.Button(
+            name="⤢", width=28, height=26, button_type="light", margin=1
         )
-        menu.on_click(self._on_menu)
+        expand_btn.on_click(lambda _e: self._toggle_expand())
+        remove_btn = pn.widgets.Button(
+            name="✕", width=28, height=26, button_type="light", margin=1
+        )
+        remove_btn.on_click(lambda _e: board.remove(self))
+        self._controls = pn.Row(
+            self.chart_choice,
+            expand_btn,
+            remove_btn,
+            css_classes=["card-controls"],
+            margin=0,
+        )
 
         initial = phrase_value(result.value)
         self.takeaway = pn.pane.Markdown(
@@ -433,16 +440,12 @@ class Block:
             stylesheets=[ACCORDION_CSS],
         )
         self.panel = pn.Column(
-            pn.Row(
-                pn.pane.Markdown(
-                    f"{number_pill}&nbsp; <span style='font-weight:600;"
-                    f"font-size:13.5px;color:#111827'>{question}</span>"
-                    f"{verdict_pill}",
-                    margin=(2, 10),
-                    sizing_mode="stretch_width",
-                ),
-                self.chart_choice,
-                menu,
+            self._controls,
+            pn.pane.Markdown(
+                f"{number_pill}&nbsp; <span style='font-weight:600;"
+                f"font-size:13.5px;color:#111827'>{question}</span>"
+                f"{verdict_pill}",
+                margin=(2, 34, 0, 10),
                 sizing_mode="stretch_width",
             ),
             self.takeaway,
@@ -464,16 +467,10 @@ class Block:
             )
         ]
 
-    def _on_menu(self, event) -> None:
-        action = event.new
-        if action == "remove":
-            self.board.remove(self)
-        elif action == "expand":
-            self.expanded = not self.expanded
-            self._redraw()
-            self.board._rebuild_grid()
-        elif action in ("left", "right"):
-            self.board.nudge(self, -1 if action == "left" else 1)
+    def _toggle_expand(self) -> None:
+        self.expanded = not self.expanded
+        self._redraw()
+        self.board._rebuild_grid()
 
     def _on_chart_click(self, event) -> None:
         data = getattr(event, "data", None) or {}
@@ -560,8 +557,13 @@ class Board:
             margin=(6, 4, 0, 0),
         )
         retell.on_click(lambda _e: asyncio.create_task(self.retell()))
+        self._order_sink = pn.widgets.TextInput(
+            visible=False, css_classes=["order-sink"], width=0
+        )
+        self._order_sink.param.watch(self._on_drag_order, "value")
         self.board_header = pn.Row(
             self.board_caption,
+            self._order_sink,
             pn.Spacer(sizing_mode="stretch_width"),
             retell,
             clear,
@@ -961,6 +963,18 @@ class Board:
         self.blocks.remove(block)
         self._rebuild_grid()
 
+    def _on_drag_order(self, event) -> None:
+        """Adopt the order the user dragged into. No rebuild: the DOM already
+        shows it, and re-rendering would snap cards mid-gesture."""
+        try:
+            numbers = [int(n) for n in str(event.new).split(",") if n]
+        except ValueError:
+            return
+        by_number = {b.number: b for b in self.blocks}
+        if sorted(numbers) != sorted(by_number):
+            return
+        self.blocks = [by_number[n] for n in numbers]
+
     def nudge(self, block: Block, delta: int) -> None:
         """Move a card one slot left or right in the flow."""
         i = self.blocks.index(block)
@@ -1001,9 +1015,10 @@ class Board:
         # cards reliably. Drag/resize is a follow-up, not worth a broken board.
         ordered = sorted(self.blocks, key=lambda b: not b.expanded)
         for b in self.blocks:
-            b.panel.css_classes = (
-                ["npi-card", "fresh-card"] if b.fresh else ["npi-card"]
-            )
+            classes = ["npi-card", f"card-{b.number}"]
+            if b.fresh:
+                classes.append("fresh-card")
+            b.panel.css_classes = classes
             b.fresh = False
             # Size expresses content: an expanded card takes the row, a bare
             # metric needs a third of one, charts keep their standard width.
@@ -1015,7 +1030,11 @@ class Board:
                 b.panel.width = 470
         self.grid_holder.height = None
         self.grid_holder.objects = [
-            pn.FlexBox(*[b.panel for b in ordered], sizing_mode="stretch_width")
+            pn.FlexBox(
+                *[b.panel for b in ordered],
+                sizing_mode="stretch_width",
+                css_classes=["board-flex"],
+            )
         ]
 
     # -- chat -----------------------------------------------------------------
@@ -1307,8 +1326,19 @@ body {
   color: #111827;
 }
 :root { --design-primary-color: #6366F1; }
-.npi-card { transition: box-shadow .15s ease; }
-.npi-card:hover { box-shadow: 0 4px 12px rgba(15,23,42,.08) !important; }
+.npi-card { position: relative; transition: box-shadow .15s ease, transform .15s ease; }
+.npi-card:hover {
+  box-shadow: 0 6px 20px rgba(15,23,42,.10) !important;
+  transform: translateY(-2px);
+}
+.npi-ghost { opacity: .35; }
+.card-controls {
+  position: absolute; top: 8px; right: 8px; z-index: 5;
+  opacity: 0; transition: opacity .15s ease;
+  background: rgba(255,255,255,.95); border: 1px solid #eceef2;
+  border-radius: 9px; padding: 2px; box-shadow: 0 2px 10px rgba(15,23,42,.10);
+}
+:host(.npi-card:hover) .card-controls { opacity: 1; }
 @keyframes cardflash {
   0%   { box-shadow: 0 0 0 2px #6366F1; }
   100% { box-shadow: 0 1px 2px rgba(15,23,42,.05); }
