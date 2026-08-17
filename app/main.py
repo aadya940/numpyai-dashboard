@@ -205,6 +205,40 @@ def texify(text: str) -> str:
     return _TEX_RE.sub(_swap, text)
 
 
+def block_kind(value) -> str:
+    """A dashboard is organised by importance, not ask-order: single stats
+    form the overview strip, visualisations the analysis zone, tables the
+    detail zone (Few: consolidated, monitorable at a glance)."""
+    if isinstance(value, (int, float, np.floating, np.integer)):
+        return "kpi"
+    if isinstance(value, str) and len(value) <= 40:
+        return "kpi"
+    if isinstance(value, pd.Series) and pd.api.types.is_numeric_dtype(value):
+        return "chart" if len(value) <= 30 else "detail"
+    if isinstance(value, pd.DataFrame):
+        numeric = [c for c in value.columns if pd.api.types.is_numeric_dtype(value[c])]
+        time_index = isinstance(value.index, (pd.DatetimeIndex, pd.PeriodIndex))
+        if time_index and numeric:
+            return "chart"
+        if (
+            not isinstance(value.index, pd.RangeIndex)
+            and 2 <= len(numeric) <= 6
+            and len(value) <= 12
+        ):
+            return "chart"
+        if value.shape[1] == 2 and len(numeric) == 2:
+            return "chart"
+        return "detail"
+    try:
+        from matplotlib.figure import Figure
+
+        if isinstance(value, Figure):
+            return "chart"
+    except ImportError:
+        pass
+    return "detail"
+
+
 def slug(stem: str) -> str:
     """A filename stem as a Python identifier the model can reference."""
     out = re.sub(r"\W+", "_", stem).strip("_").lower() or "table"
@@ -639,6 +673,7 @@ class Block:
         self.number = number
         self.fresh = True
         self.source: str | None = None
+        self.zone = "chart"
         self.chart_choice = pn.widgets.Select(
             options=["auto", "bar", "hbar", "line", "scatter", "donut", "table"],
             value="auto",
@@ -700,12 +735,13 @@ class Block:
         self._body = pn.Column(sizing_mode="stretch_width")
         self._redraw()
 
-        code_view = pn.Accordion(
+        self.code_view = pn.Accordion(
             ("code", pn.pane.Markdown(f"```python\n{result.code}\n```")),
             active=[],
             sizing_mode="stretch_width",
             stylesheets=[ACCORDION_CSS],
         )
+        code_view = self.code_view
         self.panel = pn.Column(
             self._controls,
             pn.pane.Markdown(
@@ -1265,9 +1301,16 @@ class Board:
         except ValueError:
             return
         by_number = {b.number: b for b in self.blocks}
-        if sorted(numbers) != sorted(by_number):
+        if any(n not in by_number for n in numbers) or len(set(numbers)) != len(
+            numbers
+        ):
             return
-        self.blocks = [by_number[n] for n in numbers]
+        # A drag reorders one zone; merge that subsequence into the whole.
+        dragged = set(numbers)
+        feed = iter(numbers)
+        self.blocks = [
+            by_number[next(feed)] if b.number in dragged else b for b in self.blocks
+        ]
 
     def nudge(self, block: Block, delta: int) -> None:
         """Move a card one slot left or right in the flow."""
@@ -1307,29 +1350,56 @@ class Board:
             return
         # GridStack renders blank in testing (panel 1.9.3); FlexBox holds the
         # cards reliably. Drag/resize is a follow-up, not worth a broken board.
-        ordered = sorted(self.blocks, key=lambda b: not b.expanded)
         for b in self.blocks:
             classes = ["npi-card", f"card-{b.number}"]
             if b.fresh:
                 classes.append("fresh-card")
             b.panel.css_classes = classes
             b.fresh = False
-            # Size expresses content: an expanded card takes the row, a bare
-            # metric needs a third of one, charts keep their standard width.
+            kind = "chart" if b.expanded else block_kind(b.result.value)
+            b.zone = kind
+            # KPI chips are compact single-stats: no takeaway, no code face -
+            # both remain one hover-expand away.
+            compact = kind == "kpi" and not b.expanded
+            b.takeaway.visible = not compact and bool(b.takeaway.object)
+            b.code_view.visible = not compact
             if b.expanded:
                 b.panel.width = 962
-            elif isinstance(b.result.value, (int, float, np.floating, np.integer)):
-                b.panel.width = 300
+            elif compact:
+                b.panel.width = 236
             else:
                 b.panel.width = 470
         self.grid_holder.height = None
-        self.grid_holder.objects = [
-            pn.FlexBox(
-                *[b.panel for b in ordered],
-                sizing_mode="stretch_width",
-                css_classes=["board-flex"],
-            )
+        zones = [
+            ("OVERVIEW", [b for b in self.blocks if b.zone == "kpi"]),
+            (
+                "ANALYSIS",
+                sorted(
+                    [b for b in self.blocks if b.zone == "chart"],
+                    key=lambda b: not b.expanded,
+                ),
+            ),
+            ("DETAIL", [b for b in self.blocks if b.zone == "detail"]),
         ]
+        objects = []
+        for caption, members in zones:
+            if not members:
+                continue
+            objects.append(
+                pn.pane.Markdown(
+                    f"<span style='color:#6b7a9e;font-size:10.5px;"
+                    f"font-weight:600;letter-spacing:.1em'>{caption}</span>",
+                    margin=(6, 6, 0, 8),
+                )
+            )
+            objects.append(
+                pn.FlexBox(
+                    *[b.panel for b in members],
+                    sizing_mode="stretch_width",
+                    css_classes=["board-flex"],
+                )
+            )
+        self.grid_holder.objects = objects
 
     # -- chat -----------------------------------------------------------------
 
