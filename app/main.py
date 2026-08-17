@@ -205,20 +205,23 @@ def _echarts_spec(series: pd.Series) -> dict:
     }
 
 
-def render_value(value, chart: str | None = None, on_click=None):
+def render_value(value, chart: str | None = None, on_click=None, height: int = 260):
     """Pick a pane for whatever the generated code produced."""
     if isinstance(value, pd.Series) and np.issubdtype(
         np.asarray(value.to_numpy()).dtype, np.number
     ):
         if len(value) > 30 or chart == "table":
             return pn.widgets.Tabulator(
-                value.to_frame(), height=260, disabled=True, sizing_mode="stretch_width"
+                value.to_frame(),
+                height=height,
+                disabled=True,
+                sizing_mode="stretch_width",
             )
         spec = _echarts_spec(value)
         if chart in ("bar", "line"):
             spec["series"][0]["type"] = chart
         pane = pn.pane.ECharts(
-            spec, height=260, sizing_mode="stretch_width", theme="light"
+            spec, height=height, sizing_mode="stretch_width", theme="light"
         )
         if on_click is not None:
             pane.on_event("click", on_click)
@@ -260,13 +263,13 @@ def render_value(value, chart: str | None = None, on_click=None):
                 ],
             }
             return pn.pane.ECharts(
-                spec, height=260, sizing_mode="stretch_width", theme="light"
+                spec, height=height, sizing_mode="stretch_width", theme="light"
             )
         return pn.widgets.Tabulator(
             value,
             pagination="remote" if len(value) > 10_000 else None,
             page_size=8,
-            height=260,
+            height=height,
             disabled=True,
             show_index=False,
             sizing_mode="stretch_width",
@@ -291,7 +294,7 @@ def render_value(value, chart: str | None = None, on_click=None):
         if value.ndim <= 2 and value.size <= 400:
             return pn.widgets.Tabulator(
                 pd.DataFrame(value),
-                height=260,
+                height=height,
                 disabled=True,
                 sizing_mode="stretch_width",
             )
@@ -391,10 +394,21 @@ class Block:
             f"<span style='background:#f1f3f9;color:#64748b;padding:1px 7px;"
             f"border-radius:6px;font-size:11px;font-weight:600'>#{number}</span>"
         )
-        dismiss = pn.widgets.Button(
-            name="✕", width=30, height=26, align="end", button_type="light"
+        self.expanded = False
+        menu = pn.widgets.MenuButton(
+            name="⋯",
+            items=[
+                ("Expand", "expand"),
+                ("Move left", "left"),
+                ("Move right", "right"),
+                ("Remove", "remove"),
+            ],
+            width=44,
+            height=26,
+            align="end",
+            button_type="light",
         )
-        dismiss.on_click(lambda _: board.remove(self))
+        menu.on_click(self._on_menu)
 
         initial = phrase_value(result.value)
         self.takeaway = pn.pane.Markdown(
@@ -428,7 +442,7 @@ class Block:
                     sizing_mode="stretch_width",
                 ),
                 self.chart_choice,
-                dismiss,
+                menu,
                 sizing_mode="stretch_width",
             ),
             self.takeaway,
@@ -442,8 +456,24 @@ class Block:
     def _redraw(self) -> None:
         chart = None if self.chart_choice.value == "auto" else self.chart_choice.value
         self._body.objects = [
-            render_value(self.result.value, chart, on_click=self._on_chart_click)
+            render_value(
+                self.result.value,
+                chart,
+                on_click=self._on_chart_click,
+                height=500 if self.expanded else 260,
+            )
         ]
+
+    def _on_menu(self, event) -> None:
+        action = event.new
+        if action == "remove":
+            self.board.remove(self)
+        elif action == "expand":
+            self.expanded = not self.expanded
+            self._redraw()
+            self.board._rebuild_grid()
+        elif action in ("left", "right"):
+            self.board.nudge(self, -1 if action == "left" else 1)
 
     def _on_chart_click(self, event) -> None:
         data = getattr(event, "data", None) or {}
@@ -931,6 +961,14 @@ class Board:
         self.blocks.remove(block)
         self._rebuild_grid()
 
+    def nudge(self, block: Block, delta: int) -> None:
+        """Move a card one slot left or right in the flow."""
+        i = self.blocks.index(block)
+        j = max(0, min(len(self.blocks) - 1, i + delta))
+        if i != j:
+            self.blocks[i], self.blocks[j] = self.blocks[j], self.blocks[i]
+            self._rebuild_grid()
+
     def clear_board(self) -> None:
         self.blocks.clear()
         self._rebuild_grid()
@@ -961,14 +999,23 @@ class Board:
             return
         # GridStack renders blank in testing (panel 1.9.3); FlexBox holds the
         # cards reliably. Drag/resize is a follow-up, not worth a broken board.
+        ordered = sorted(self.blocks, key=lambda b: not b.expanded)
         for b in self.blocks:
             b.panel.css_classes = (
                 ["npi-card", "fresh-card"] if b.fresh else ["npi-card"]
             )
             b.fresh = False
+            # Size expresses content: an expanded card takes the row, a bare
+            # metric needs a third of one, charts keep their standard width.
+            if b.expanded:
+                b.panel.width = 962
+            elif isinstance(b.result.value, (int, float, np.floating, np.integer)):
+                b.panel.width = 300
+            else:
+                b.panel.width = 470
         self.grid_holder.height = None
         self.grid_holder.objects = [
-            pn.FlexBox(*[b.panel for b in self.blocks], sizing_mode="stretch_width")
+            pn.FlexBox(*[b.panel for b in ordered], sizing_mode="stretch_width")
         ]
 
     # -- chat -----------------------------------------------------------------
