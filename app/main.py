@@ -55,6 +55,23 @@ SAMPLE = REPO / "examples" / "sample_sales.xlsx"
 ACCENT = "#7C9AFF"
 PALETTE = ["#7C9AFF", "#4FD1C5", "#F6BD6B", "#F97583", "#6EDDF6", "#C39BF7"]
 PEAK = "#F59E0B"
+KPI_GRADIENTS = [
+    "linear-gradient(135deg,#8b5cf6 0%,#d946ef 100%)",
+    "linear-gradient(135deg,#06b6d4 0%,#3b82f6 100%)",
+    "linear-gradient(135deg,#10b981 0%,#14b8a6 100%)",
+    "linear-gradient(135deg,#f59e0b 0%,#f43f5e 100%)",
+]
+BAR_GRADIENT = {
+    "type": "linear",
+    "x": 0,
+    "y": 0,
+    "x2": 0,
+    "y2": 1,
+    "colorStops": [
+        {"offset": 0, "color": "#6EDDF6"},
+        {"offset": 1, "color": "#7C9AFF"},
+    ],
+}
 CARD_CSS = {
     "border-radius": "14px",
     "box-shadow": "0 1px 2px rgba(15,23,42,.04), 0 4px 14px rgba(15,23,42,.05)",
@@ -304,7 +321,11 @@ def _echarts_spec(series: pd.Series) -> dict:
                 "data": [None if pd.isna(v) else round(float(v), 2) for v in series],
                 "smooth": time_like,
                 "lineStyle": {"width": 3} if time_like else None,
-                "itemStyle": (None if time_like else {"borderRadius": [6, 6, 0, 0]}),
+                "itemStyle": (
+                    None
+                    if time_like
+                    else {"borderRadius": [6, 6, 0, 0], "color": BAR_GRADIENT}
+                ),
                 "areaStyle": {"color": fade} if time_like else None,
                 "barMaxWidth": 46,
                 "markPoint": {
@@ -722,6 +743,7 @@ class Block:
             margin=0,
         )
 
+        self.delta = pn.pane.Markdown("", visible=False, margin=(0, 12, 0, 12))
         initial = phrase_value(result.value)
         self.takeaway = pn.pane.Markdown(
             f"→ {initial}" if initial else "",
@@ -755,6 +777,7 @@ class Block:
                 margin=(2, 34, 0, 10),
                 sizing_mode="stretch_width",
             ),
+            self.delta,
             self.takeaway,
             self._body,
             code_view,
@@ -1286,6 +1309,55 @@ class Board:
 
     # -- blocks ---------------------------------------------------------------
 
+    def compute_delta(self, block: Block) -> str | None:
+        """Last 30 days vs the prior 30, by re-running the block's own code.
+
+        Only for scalar answers over a dated frame; failures mean no badge,
+        never a wrong one.
+        """
+        if not isinstance(block.result.value, (int, float, np.floating, np.integer)):
+            return None
+        df = self.frame.data
+        date_cols = [
+            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+        if not date_cols:
+            return None
+        col = date_cols[0]
+        end = df[col].max()
+        try:
+            recent = df[df[col] > end - pd.Timedelta(days=30)]
+            prior = df[
+                (df[col] <= end - pd.Timedelta(days=30))
+                & (df[col] > end - pd.Timedelta(days=60))
+            ]
+            if len(recent) < 3 or len(prior) < 3:
+                return None
+            v1, _ = execute(
+                block.result.code, {"df": recent.copy(), "pd": pd}, verbose=False
+            )
+            v0, _ = execute(
+                block.result.code, {"df": prior.copy(), "pd": pd}, verbose=False
+            )
+            v1, v0 = float(v1), float(v0)
+            if v0 == 0 or not np.isfinite(v1) or not np.isfinite(v0):
+                return None
+            pct = (v1 - v0) / abs(v0) * 100
+        except Exception:
+            return None
+        if abs(pct) < 0.05:
+            return None
+        up = pct > 0
+        color = "#a7f3d0" if up else "#fecdd3"
+        arrow = "▲" if up else "▼"
+        return (
+            f"<span style='background:rgba(255,255,255,.16);color:{color};"
+            f"padding:2px 8px;border-radius:999px;font-size:11px;"
+            f"font-weight:700'>{arrow} {abs(pct):.0f}%</span> "
+            f"<span style='color:rgba(255,255,255,.75);font-size:10.5px'>"
+            f"vs prior 30d</span>"
+        )
+
     def find_duplicate(self, result: ChatResult) -> Block | None:
         fingerprint = "".join(result.code.split())
         if not fingerprint:
@@ -1300,6 +1372,9 @@ class Board:
     ) -> Block:
         self._counter += 1
         block = Block(self, result, question, self._counter)
+        badge = self.compute_delta(block)
+        if badge:
+            block.delta.object = badge
         block.source = self.active if source == "active" else source
         self.blocks.insert(0, block)
         self._rebuild_grid()
@@ -1380,12 +1455,27 @@ class Board:
             b.takeaway.visible = not compact and bool(b.takeaway.object)
             b.code_view.visible = not compact
             b.code_view.active = []
+            b.delta.visible = compact and bool(b.delta.object)
             if b.expanded:
                 b.panel.width = 962
             elif compact:
                 b.panel.width = 236
             else:
                 b.panel.width = 470
+            if compact:
+                b.panel.styles = {
+                    "background": KPI_GRADIENTS[b.number % len(KPI_GRADIENTS)],
+                    "padding": "12px 14px",
+                    "border-radius": "16px",
+                    "border": "none",
+                    "box-shadow": "0 8px 24px rgba(0,0,0,.35)",
+                }
+            else:
+                b.panel.styles = {
+                    "background": "#121a2e",
+                    "padding": "12px 14px",
+                    **CARD_CSS,
+                }
         self.grid_holder.height = None
         zones = [
             ("OVERVIEW", [b for b in self.blocks if b.zone == "kpi"]),
@@ -1720,7 +1810,10 @@ right = pn.Column(
 
 pn.config.raw_css.append("""
 body {
-  background: #0b1220;
+  background:
+    radial-gradient(640px at 88% -8%, rgba(124,92,240,.16), transparent 60%),
+    radial-gradient(720px at -12% 92%, rgba(79,209,197,.10), transparent 60%),
+    #0b1220;
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
