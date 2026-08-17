@@ -12,6 +12,7 @@ re-executes them against the filtered rows without another model call.
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import re
 import tempfile
@@ -40,10 +41,6 @@ pn.config.css_files.append(
 pn.config.js_files.update(
     {
         "katex": "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js",
-        "katex_auto": (
-            "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/"
-            "auto-render.min.js"
-        ),
         "sortable": "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js",
         "npi_board": "/assets/board.js",
     }
@@ -129,6 +126,32 @@ class _BoardStory(BaseModel):
         )
     )
     takeaways: list[_BlockTakeaway]
+
+
+_TEX_RE = re.compile(r"\$\$(.+?)\$\$|(?<!\\)\$(.+?)(?<!\\)\$", re.DOTALL)
+
+
+def texify(text: str) -> str:
+    """Protect $...$ math from markdown, which mangles its underscores.
+
+    Each math span becomes an inert placeholder carrying the raw TeX
+    base64-encoded; markdown passes it through untouched and the client
+    renders each one with katex.render - no delimiter scanning, so no
+    half-rendered red wreckage when markdown has already eaten a token.
+    """
+    if "$" not in text:
+        return text
+
+    def _swap(match: re.Match) -> str:
+        display = match.group(1) is not None
+        tex = match.group(1) if display else match.group(2)
+        blob = base64.b64encode(tex.encode()).decode()
+        return (
+            f'<span class="npi-tex" data-tex="{blob}"'
+            f' data-display="{int(display)}"></span>'
+        )
+
+    return _TEX_RE.sub(_swap, text)
 
 
 def slug(stem: str) -> str:
@@ -331,7 +354,10 @@ def render_value(value, chart: str | None = None, on_click=None, height: int = 2
         )
 
     if isinstance(value, str):
-        return pn.pane.Markdown(value if len(value) > 60 else f"**{value}**")
+        text = texify(value)
+        return pn.pane.Markdown(
+            text if len(value) > 60 else f"**{text}**", css_classes=["math"]
+        )
     return pn.pane.Markdown(f"**{value}**")
 
 
@@ -934,13 +960,14 @@ class Board:
         with pn.io.unlocked():
             self.story.object = (
                 "<span style='color:#9ca3af;font-size:11px;font-weight:600;"
-                "letter-spacing:.08em'>THE STORY SO FAR</span>\n\n" + result.story
+                "letter-spacing:.08em'>THE STORY SO FAR</span>\n\n"
+                + texify(result.story)
             )
             self.story.visible = True
             for item in result.takeaways:
                 block = by_number.get(item.number)
                 if block is not None and item.takeaway:
-                    block.takeaway.object = f"→ {item.takeaway}"
+                    block.takeaway.object = f"→ {texify(item.takeaway)}"
                     block.takeaway.visible = True
 
     def drill(self, label: str, block: Block) -> None:
@@ -1109,7 +1136,7 @@ class Board:
         if result.ok and isinstance(result.value, str) and not result.code:
             # Advisory answer: already prose, already the answer. No pin, no
             # narration pass - narrating advice would just paraphrase it.
-            return pn.pane.Markdown(result.value)
+            return pn.pane.Markdown(texify(result.value), css_classes=["math"])
         if result.ok and isinstance(result.value, str):
             # The code step produced evidence (tree rules, group numbers). The
             # code persona cannot narrate values it has not seen, so a second,
@@ -1129,7 +1156,7 @@ class Board:
                 "Then include the evidence verbatim under 'Details:'.",
             )
             return pn.Column(
-                pn.pane.Markdown(narrated),
+                pn.pane.Markdown(texify(narrated), css_classes=["math"]),
                 pn.Accordion(
                     (
                         "how I computed it",
@@ -1142,7 +1169,8 @@ class Board:
         if result.ok and result.chat_only:
             # A conversational fact: answer inline, keep the board clean.
             return pn.pane.Markdown(
-                f"{phrase_value(result.value) or str(result.value)}"
+                texify(f"{phrase_value(result.value) or str(result.value)}"),
+                css_classes=["math"],
             )
         if result.ok:
             was_multi = getattr(self, "_last_was_multi", False)

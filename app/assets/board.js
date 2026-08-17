@@ -168,10 +168,11 @@
   }
 
   // -- LaTeX in model text ----------------------------------------------------
+  // The server replaces $...$ with <span class="npi-tex" data-tex="base64">
+  // BEFORE markdown runs, so markdown can never mangle the TeX. The client
+  // decodes and typesets each placeholder exactly - no delimiter scanning.
   // KaTeX styles in <head> do not pierce shadow roots, so the stylesheet is
-  // fetched once, its font URLs made absolute, and adopted into every root
-  // that contains math. Re-renders when a surface's text changes (the story
-  // strip rewrites itself).
+  // fetched once, font URLs made absolute, and adopted where math appears.
 
   let katexSheet = null;
   let katexSheetLoading = false;
@@ -191,30 +192,28 @@
   }
 
   function renderMath() {
-    if (!window.renderMathInElement) return;
+    if (!window.katex) return;
     loadKatexSheet();
     if (!katexSheet) return;
     for (const host of walk(document)) {
-      if (!host.classList || !host.classList.contains("math")) continue;
       const root = host.shadowRoot;
       if (!root) continue;
-      const text = root.textContent || "";
-      if (host._npiMathText === text) continue;
-      host._npiMathText = text;
-      if (!text.includes("$")) continue;
+      const spans = root.querySelectorAll(".npi-tex:not([data-npi-done])");
+      if (!spans.length) continue;
       if (!root.adoptedStyleSheets.includes(katexSheet)) {
         root.adoptedStyleSheets = [...root.adoptedStyleSheets, katexSheet];
       }
-      try {
-        renderMathInElement(root, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "$", right: "$", display: false },
-          ],
-          throwOnError: false,
-        });
-      } catch (e) {
-        /* malformed latex must never break the page */
+      for (const span of spans) {
+        span.dataset.npiDone = "1";
+        const tex = atob(span.dataset.tex || "");
+        try {
+          katex.render(tex, span, {
+            throwOnError: false,
+            displayMode: span.dataset.display === "1",
+          });
+        } catch (e) {
+          span.textContent = "$" + tex + "$";
+        }
       }
     }
   }
